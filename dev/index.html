@@ -3,7 +3,7 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>&lt;my-element> Demo</title>
+    <title>File Browser Demo</title>
     <script type="module" src="/file-browser.js"></script>
     <style>
       p {
@@ -13,6 +13,7 @@
     </style>
   </head>
   <body>
-    <file-browser root="dev"/>
+    <h1>File Browser Demo</h1>
+    <file-browser filePrefix="/dev" restURL="http://localhost:8080/RestFileServer/rest/"/>
   </body>
 </html>

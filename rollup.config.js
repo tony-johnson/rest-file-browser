@@ -16,11 +16,19 @@ import filesize from 'rollup-plugin-filesize';
 import {terser} from 'rollup-plugin-terser';
 import resolve from 'rollup-plugin-node-resolve';
 import replace from '@rollup/plugin-replace';
+import copy from 'rollup-plugin-copy';
+
+
+const copyConfig = {
+  targets: [
+    { src: 'index.html', dest: 'dist', transform: (contents) => contents.toString().replace('./file-browser.js', './file-browser.bundled.js')},
+  ],
+};
 
 export default {
-  input: 'my-element.js',
+  input: 'file-browser.js',
   output: {
-    file: 'my-element.bundled.js',
+    file: 'dist/file-browser.bundled.js',
     format: 'esm',
   },
   onwarn(warning) {
@@ -40,6 +48,7 @@ export default {
         },
       },
     }),
+    copy(copyConfig),
     filesize({
       showBrotliSize: true,
     })

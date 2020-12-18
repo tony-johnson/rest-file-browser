@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'lit-element';
 import { repeat } from 'lit-html/directives/repeat.js';
 
 import 'ace-builds/src-noconflict/ace.js';
-import 'ace-builds/src-noconflict/ext-language_tools.js';
+import 'ace-builds/src-noconflict/ext-modelist.js';
 import 'ace-builds/src-noconflict/snippets/snippets.js';
 
 
@@ -21,14 +21,19 @@ export class FileBrowser extends LitElement {
 
   static get properties() {
     return {
+      restURL: {type: String, notify: true},
       data: { type: Object, notify: true },
       path: { type: String, notify: true },
+      filePrefix: { type: String, notify: true },
+      context: { type: String, notify: true },
     };
   }
 
   constructor() {
     super();
-    this.restURL = 'http://localhost:8080/rest-file-server/rest/';
+    this.restURL = 'rest/';
+    this.filePrefix = "/dev";
+    this.context = '';
     this.data = {};
     this.path = ".";
   }
@@ -36,10 +41,9 @@ export class FileBrowser extends LitElement {
   render() {
 
     return html`
-      <h1>File Browser</h1>
       Path: ${this.path}
 
-      ${this.data.children != null ? (this.data.isVersionedFile ? this._renderVersionedFile(this.data) : this._renderFolder(this.data)) : this._renderFile(this.data)}
+      ${this.data.versionedFile ? this._renderVersionedFile(this.data) : this.data.children != null ? this._renderFolder(this.data) : this._renderFile(this.data)}
       `;
 
   }
@@ -56,33 +60,39 @@ export class FileBrowser extends LitElement {
 
   _renderVersionedFile(data) {
     return html`
-      <p>Versioned file ${data.name}
-      <file-versions restURL="${this.restURL}" path="${this.path}"></file-versions>
+      <p>Versioned file ${data.name}</p>
+      <file-versions restURL="${this.restURL}" path="${this.path}" name=${data.name}></file-versions>
     `;
   }
 
   _renderFile(data) {
     return html`
-      <p>File ${data.name} ${data.size} ${data.lastModified} ${data.mimeType} (<a href="${this.restURL + 'download/' + this.path}">download</a>)
-      ${data.mimeType && data.mimeType.startsWith("text/") ? this._renderEditor(this.restURL + 'download/' + this.path) : null}
+      <p>File ${data.name} ${data.size} ${data.lastModified} ${data.mimeType} (<a href="${this.restURL + 'download/' + this.path}">download</a>)</p>
+      ${data.mimeType && data.mimeType.startsWith("text/") ? this._renderEditor(this.restURL + 'download/' + this.path, data.name) : null}
       ${data.mimeType && data.mimeType.startsWith("image/") ? this._renderImage(this.restURL + 'download/' + this.path) : null}
     `;
   }
 
-  _renderEditor(url) {
+  _renderEditor(url, name) {
     return html`
-      <ace-editor readonly fileURL="${url}"></ace-editor>
+      <ace-editor readonly name=${name} fileURL=${url}></ace-editor>
     `;
   }
 
   _renderImage(url) {
     return html`
-      <img src="${url}">
+      <img src=${url}>
     `;
   }
 
   firstUpdated(changedProperties) {
-    this.path = window.location.pathname.replace('/dev', '.');
+    console.log(this.context);
+    ace.config.set('basePath', this.context+'/ace');
+    console.log(window.location.pathname);
+    this.path = window.location.pathname.replace(this.filePrefix, '.');
+    console.log(this.path);
+    if (this.path == "./") this.path = ".";
+    console.log(this.path);
     this._updateData();
     window.onpopstate = (e) => {
       console.log(e.state);
@@ -99,7 +109,7 @@ export class FileBrowser extends LitElement {
   _gotoFile(e) {
     let newPath = this.path + "/" + e.path[0].textContent
     this._goto(newPath);
-    window.history.pushState(newPath, 'Content', "/dev" + newPath.substring(1))
+    window.history.pushState(newPath, 'Content', this.filePrefix+newPath.substring(1));
   }
   _goto(path) {
     this.data = {};
@@ -123,7 +133,6 @@ export class AceEditor extends LitElement {
           border-radius: 4px;
           height: 400px;
           width: 100%;
-          @apply --ace-widget-editor;
         }
     `;
   }
@@ -131,41 +140,54 @@ export class AceEditor extends LitElement {
   static get properties() {
     return {
       fileURL: { type: String, notify: true },
-      value: { type: String, notify: true },
       readonly: { type: Boolean, notify: true },
+      name: { type: String, notify: true },
     };
   }
 
   constructor() {
     super();
-    this.value = 'Loading...';
     this.readonly = false;
   }
 
   render() {
 
     return html`
-      <textarea ?readOnly=${this.readonly} id="editor">${this.value}</textarea>
-      `;
+      <div id="editor"></div>
+    `;
   }
 
   static get importMeta() { return import.meta; }
 
   firstUpdated(changedProperties) {
     let div = this.shadowRoot.getElementById('editor');
-    //this.editor = ace.edit(div);
+    this.editor = ace.edit(div, {readOnly: this.readonly });
+    this.editor.setValue("Loading...");
+    var modelist = ace.require("ace/ext/modelist");
+    let mode = modelist.getModeForPath(this.name).mode;
+    console.log(mode);
+    this.editor.session.setMode(mode);
+    this.editor.renderer.attachToShadowRoot();
     fetch(this.fileURL)
       .then(response => response.text())
-      .then(text => this.value = text);
+      .then(text => this.editor.setValue(text, -1));
   }
 
   updated(changedProperties) {
     if (changedProperties.get("fileURL")) {
-      this.value = 'Loading...';
+      this.editor.setValue("Loading...");
       fetch(this.fileURL)
       .then(response => response.text())
-      .then(text => this.value = text);
+      .then(text => this.editor.setValue(text, -1));
+    } else if (changedProperties.get("readonly")) {
+      this.editor.setOption("readOnly", this.readonly);
     }
+  }
+
+  postTo(url) {
+    let text = this.editor.getValue();
+    return fetch(url, { method: 'POST', body: text, headers: {'Content-type': 'application/octet-stream'}})
+    .then(response => response.json());
   }
 
 }
@@ -184,6 +206,7 @@ export class FileVersions extends LitElement {
       restURL: { type: String, notify: true },
       data: { type: Object, notify: true },
       path: { type: String, notify: true },
+      name: { type: String, notify: true },
       selectedVersion: { type: String, notify: true },
     };
   };
@@ -214,12 +237,16 @@ export class FileVersions extends LitElement {
         ${repeat(this.data.versions, (row) => row.version, (row, index) => html`
           <option value=${row.version} ?selected=${this.selectedVersion == row.version}>${row.version}</option>
         `)}
-        </select>
-        <ace-editor readonly fileURL="${this.restURL+"version/download/"+this.path+"?version="+this.selectedVersion}"></ace-editor>
+        </select><button @click=${this._edit}>Edit</button><button @click=${this._save}>Save</button><button>Diff Viewer</button>
+        <ace-editor readonly name=${this.name} fileURL="${this.restURL+"version/download/"+this.path+"?version="+(this.selectedVersion=="default" && this.data.default?this.data.default:this.selectedVersion)}"></ace-editor>
     `;
   }
 
   firstUpdated(changedProperties) {
+    this._updateData();
+  }
+
+  _updateData() {
     fetch(this.restURL + "version/info/" + this.path)
       .then(response => response.json())
       .then(versions => this.data = versions);
@@ -235,6 +262,17 @@ export class FileVersions extends LitElement {
     fetch(this.restURL + "version/set/" + this.path, { method: 'PUT', body: JSON.stringify(defaultId), headers: {'Content-type': 'application/json; charset=UTF-8'}})
       .then(response => response.json())
       .then(versions => this.data = versions);
+  }
+
+  _edit() {
+    let editor = this.shadowRoot.querySelector("ace-editor");
+    editor.readonly = false;
+  }
+
+
+  _save() {
+    let editor = this.shadowRoot.querySelector("ace-editor");
+    editor.postTo(this.restURL + "version/upload/" + this.path).then((data) => this._updateData());
   }
 }
 
