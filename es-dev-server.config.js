@@ -1,7 +1,7 @@
 module.exports = {
     middlewares: [
         function rewriteIndex(context, next) {
-          if (context.url.startsWith('/dev/')) {
+          if (context.url.startsWith('/dev')) {
             context.url = '/dev';
           }
 
