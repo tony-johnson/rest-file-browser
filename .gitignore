@@ -1,4 +1,5 @@
 /node_modules/
+/dist/
 
 # only generated for size check
 my-element.bundled.js

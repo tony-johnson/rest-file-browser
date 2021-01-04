@@ -41,7 +41,7 @@ export class FileBrowser extends LitElement {
   render() {
 
     return html`
-      Path: ${this.path}
+      <path-browser @path-changed=${this._pathChanged} path=${this.path}></path-browser>
 
       ${this.data.versionedFile ? this._renderVersionedFile(this.data) : this.data.children != null ? this._renderFolder(this.data) : this._renderFile(this.data)}
       `;
@@ -111,10 +111,75 @@ export class FileBrowser extends LitElement {
     this._goto(newPath);
     window.history.pushState(newPath, 'Content', this.filePrefix+newPath.substring(1));
   }
+
+  _pathChanged(e) {
+    let newPath = e.detail.path
+    this._goto(newPath);
+    window.history.pushState(newPath, 'Content', this.filePrefix+newPath.substring(1));
+  }
+
   _goto(path) {
     this.data = {};
     this.path = path;
     this._updateData();
+  }
+
+}
+
+export class PathBrowser extends LitElement {
+  static get styles() {
+    return css`
+      :host {
+        display: inline;
+      }
+    `;
+  }
+
+  static get properties() {
+    return {
+      path: {type: String, notify: true},
+    };
+  }
+
+  constructor() {
+    super();
+  }
+
+  firstUpdated(changedProperties) {
+  }
+
+  render() {
+
+    let parts = this.path.split('/');
+    const pathTemplates = [];
+    parts.forEach((part, i, array) => {
+      if (i==array.length-1) {
+        pathTemplates.push(html`${part}`);
+      } else {
+        pathTemplates.push(html`<a href='#' @click=${this._gotoPath} id=${i}>${part}</a>/`);
+      }
+    });
+
+    return html`
+      Path: ${pathTemplates}
+      `;
+
+  }
+
+  _gotoPath(e) {
+    let index = parseInt(e.path[0].id);
+    console.log(index);
+    let parts = this.path.split('/');
+
+    let newPath = parts.slice(0,index+1).join('/');
+    console.log(newPath);
+    e.preventDefault();
+    let event = new CustomEvent('path-changed', {
+      detail: {
+        path: newPath
+      }
+    });
+    this.dispatchEvent(event);
   }
 
 }
@@ -277,5 +342,6 @@ export class FileVersions extends LitElement {
 }
 
 window.customElements.define('file-browser', FileBrowser);
+window.customElements.define('path-browser', PathBrowser);
 window.customElements.define('ace-editor', AceEditor);
 window.customElements.define('file-versions', FileVersions);
