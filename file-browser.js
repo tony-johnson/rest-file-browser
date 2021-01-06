@@ -5,6 +5,7 @@ import 'ace-builds/src-noconflict/ace.js';
 import 'ace-builds/src-noconflict/ext-modelist.js';
 import 'ace-builds/src-noconflict/snippets/snippets.js';
 
+import { Instant, LocalDateTime, DateTimeFormatter } from '@js-joda/core';
 
 /**
  * An example for browsing files in rest-server.
@@ -21,7 +22,7 @@ export class FileBrowser extends LitElement {
 
   static get properties() {
     return {
-      restURL: {type: String, notify: true},
+      restURL: { type: String, notify: true },
       data: { type: Object, notify: true },
       path: { type: String, notify: true },
       filePrefix: { type: String, notify: true },
@@ -42,32 +43,41 @@ export class FileBrowser extends LitElement {
 
     return html`
       <path-browser @path-changed=${this._pathChanged} path=${this.path}></path-browser>
-
       ${this.data.versionedFile ? this._renderVersionedFile(this.data) : this.data.children != null ? this._renderFolder(this.data) : this._renderFile(this.data)}
       `;
 
   }
 
   _renderFolder(data) {
+    let dtf = new FileDateSizeFormatter();
     return html`
-      <ul>
+      <table>
+        <thead>
+          <th>Size</th><th>Date</th><th>File</th>
+        </thead>
+        <tbody>
         ${repeat(this.data.children, (row) => row.name, (row, index) => html`
-          <li><button @click=${this._gotoFile}>${row.name}</button> ${row.size} ${new Date(row.lastModified)}</li>
+          <tr class="file-list-element">
+             <td class="size"></div>${dtf.humanFileSize(row.size, true)}</td>
+             <td class="date">${dtf.format(row.lastModified)}</td>
+             <td class="name"><a href="#" @click=${this._gotoFile}>${row.name}</a></td>
+            </tr>
         `)}
-      </ul>
+        </tbody>
+      </table>
     `;
   }
 
   _renderVersionedFile(data) {
     return html`
-      <p>Versioned file ${data.name}</p>
       <file-versions restURL="${this.restURL}" path="${this.path}" name=${data.name}></file-versions>
     `;
   }
 
   _renderFile(data) {
+    let dtf = new FileDateSizeFormatter();
     return html`
-      <p>File ${data.name} ${data.size} ${data.lastModified} ${data.mimeType} (<a href="${this.restURL + 'download/' + this.path}">download</a>)</p>
+      <p>Size: ${dtf.humanFileSize(data.size)} Date: ${dtf.format(data.lastModified)} Type: ${data.mimeType} (<a href="${this.restURL + 'download/' + this.path}">download</a>)</p>
       ${data.mimeType && data.mimeType.startsWith("text/") ? this._renderEditor(this.restURL + 'download/' + this.path, data.name) : null}
       ${data.mimeType && data.mimeType.startsWith("image/") ? this._renderImage(this.restURL + 'download/' + this.path) : null}
     `;
@@ -87,7 +97,7 @@ export class FileBrowser extends LitElement {
 
   firstUpdated(changedProperties) {
     console.log(this.context);
-    ace.config.set('basePath', this.context+'/ace');
+    ace.config.set('basePath', this.context + '/ace');
     console.log(window.location.pathname);
     this.path = window.location.pathname.replace(this.filePrefix, '.');
     console.log(this.path);
@@ -107,15 +117,16 @@ export class FileBrowser extends LitElement {
   }
 
   _gotoFile(e) {
+    e.preventDefault();
     let newPath = this.path + "/" + e.path[0].textContent
     this._goto(newPath);
-    window.history.pushState(newPath, 'Content', this.filePrefix+newPath.substring(1));
+    window.history.pushState(newPath, 'Content', this.filePrefix + newPath.substring(1));
   }
 
   _pathChanged(e) {
     let newPath = e.detail.path
     this._goto(newPath);
-    window.history.pushState(newPath, 'Content', this.filePrefix+newPath.substring(1));
+    window.history.pushState(newPath, 'Content', this.filePrefix + newPath.substring(1));
   }
 
   _goto(path) {
@@ -137,15 +148,8 @@ export class PathBrowser extends LitElement {
 
   static get properties() {
     return {
-      path: {type: String, notify: true},
+      path: { type: String, notify: true },
     };
-  }
-
-  constructor() {
-    super();
-  }
-
-  firstUpdated(changedProperties) {
   }
 
   render() {
@@ -153,7 +157,7 @@ export class PathBrowser extends LitElement {
     let parts = this.path.split('/');
     const pathTemplates = [];
     parts.forEach((part, i, array) => {
-      if (i==array.length-1) {
+      if (i == array.length - 1) {
         pathTemplates.push(html`${part}`);
       } else {
         pathTemplates.push(html`<a href='#' @click=${this._gotoPath} id=${i}>${part}</a>/`);
@@ -161,18 +165,16 @@ export class PathBrowser extends LitElement {
     });
 
     return html`
-      Path: ${pathTemplates}
+      <h2>Path: ${pathTemplates}</h2>
       `;
 
   }
 
   _gotoPath(e) {
     let index = parseInt(e.path[0].id);
-    console.log(index);
     let parts = this.path.split('/');
 
-    let newPath = parts.slice(0,index+1).join('/');
-    console.log(newPath);
+    let newPath = parts.slice(0, index + 1).join('/');
     e.preventDefault();
     let event = new CustomEvent('path-changed', {
       detail: {
@@ -226,7 +228,7 @@ export class AceEditor extends LitElement {
 
   firstUpdated(changedProperties) {
     let div = this.shadowRoot.getElementById('editor');
-    this.editor = ace.edit(div, {readOnly: this.readonly });
+    this.editor = ace.edit(div, { readOnly: this.readonly });
     this.editor.setValue("Loading...");
     var modelist = ace.require("ace/ext/modelist");
     let mode = modelist.getModeForPath(this.name).mode;
@@ -242,8 +244,8 @@ export class AceEditor extends LitElement {
     if (changedProperties.get("fileURL")) {
       this.editor.setValue("Loading...");
       fetch(this.fileURL)
-      .then(response => response.text())
-      .then(text => this.editor.setValue(text, -1));
+        .then(response => response.text())
+        .then(text => this.editor.setValue(text, -1));
     } else if (changedProperties.get("readonly")) {
       this.editor.setOption("readOnly", this.readonly);
     }
@@ -251,8 +253,8 @@ export class AceEditor extends LitElement {
 
   postTo(url) {
     let text = this.editor.getValue();
-    return fetch(url, { method: 'POST', body: text, headers: {'Content-type': 'application/octet-stream'}})
-    .then(response => response.json());
+    return fetch(url, { method: 'POST', body: text, headers: { 'Content-type': 'application/octet-stream' } })
+      .then(response => response.json());
   }
 
 }
@@ -285,17 +287,27 @@ export class FileVersions extends LitElement {
   }
 
   render() {
-
+    let dtf = new FileDateSizeFormatter();
     return html`
-      <ul>
-      ${repeat(this.data.versions, (row) => row.version, (row, index) => html`
-        <li>${row.version} ${row.size} ${new Date(row.lastModified)}
-        ${row.version == this.data.latest ? html`<b>latest</b>` : null}
-        ${row.version == this.data.default ? html`<b>default</b>` : html`<button id=${row.version} @click=${this._makeDefault}>Make Default</button>`}
-        (<a href="${this.restURL + 'version/download/' + this.path+"?version="+row.version}">download</a>)
-        </li>
-      `)}
-      </ul>
+      <table>
+        <thead>
+          <th>Version</th><th>Size</th><th>Date</th><th></th>
+        </thead>
+        <tbody>
+          ${repeat(this.data.versions, (row) => row.version, (row, index) => html`
+            <tr>
+              <td>${row.version}</td>
+              <td>${dtf.humanFileSize(row.size)}</td>
+              <td>${dtf.format(row.lastModified)}</td>
+              <td>
+            ${row.version == this.data.latest ? html`<b>latest</b>` : null}
+            ${row.version == this.data.default ? html`<b>default</b>` : html`<button id=${row.version} @click=${this._makeDefault}>Make Default</button>`}
+            (<a href="${this.restURL + 'version/download/' + this.path + "?version=" + row.version}">download</a>)
+              </td>
+            </tr>
+          `)}
+        </tbody>
+      </table>
       Version: <select id="selectedVersion" @change=${this._selectionChanged}>
         <option value="default" ?selected=${this.selectedVersion == "default"}>default</option>
         <option value="latest" ?selected=${this.selectedVersion == "latest"}>latest</option>
@@ -303,7 +315,7 @@ export class FileVersions extends LitElement {
           <option value=${row.version} ?selected=${this.selectedVersion == row.version}>${row.version}</option>
         `)}
         </select><button @click=${this._edit}>Edit</button><button @click=${this._save}>Save</button><button>Diff Viewer</button>
-        <ace-editor readonly name=${this.name} fileURL="${this.restURL+"version/download/"+this.path+"?version="+(this.selectedVersion=="default" && this.data.default?this.data.default:this.selectedVersion)}"></ace-editor>
+        <ace-editor readonly name=${this.name} fileURL="${this.restURL + "version/download/" + this.path + "?version=" + (this.selectedVersion == "default" && this.data.default ? this.data.default : this.selectedVersion)}"></ace-editor>
     `;
   }
 
@@ -318,13 +330,13 @@ export class FileVersions extends LitElement {
   }
 
   _selectionChanged() {
-      let selection = this.shadowRoot.querySelector('#selectedVersion');
-      this.selectedVersion = selection.value;
+    let selection = this.shadowRoot.querySelector('#selectedVersion');
+    this.selectedVersion = selection.value;
   }
 
   _makeDefault(e) {
     let defaultId = parseInt(e.path[0].id);
-    fetch(this.restURL + "version/set/" + this.path, { method: 'PUT', body: JSON.stringify(defaultId), headers: {'Content-type': 'application/json; charset=UTF-8'}})
+    fetch(this.restURL + "version/set/" + this.path, { method: 'PUT', body: JSON.stringify(defaultId), headers: { 'Content-type': 'application/json; charset=UTF-8' } })
       .then(response => response.json())
       .then(versions => this.data = versions);
   }
@@ -338,6 +350,54 @@ export class FileVersions extends LitElement {
   _save() {
     let editor = this.shadowRoot.querySelector("ace-editor");
     editor.postTo(this.restURL + "version/upload/" + this.path).then((data) => this._updateData());
+  }
+}
+
+
+class FileDateSizeFormatter {
+
+  constructor() {
+    this.referenceTime = Instant.now();
+  }
+
+  format(epochMillis) {
+    if (epochMillis == null) return "";
+    let timeStamp = Instant.ofEpochMilli(epochMillis);
+    //let age = Duration.between(this.referenceTime, timeStamp);
+    let formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    return LocalDateTime.ofInstant(timeStamp).format(formatter);
+  }
+
+  /**
+ * Format bytes as human-readable text.
+ *
+ * @param bytes Number of bytes.
+ * @param si True to use metric (SI) units, aka powers of 1000. False to use
+ *           binary (IEC), aka powers of 1024.
+ * @param dp Number of decimal places to display.
+ *
+ * @return Formatted string.
+ */
+  humanFileSize(bytes, si = false, dp = 1) {
+    const thresh = si ? 1000 : 1024;
+
+    if (Math.abs(bytes) < thresh) {
+      return bytes;
+    }
+
+    const units = si
+      ? ['k', 'M', 'G', 'T', 'P', 'E', 'Z', 'Y']
+      : ['KiB', 'MiB', 'GiB', 'TiB', 'PiB', 'EiB', 'ZiB', 'YiB'];
+    let u = -1;
+    const r = 10 ** dp;
+
+    do {
+      bytes /= thresh;
+      ++u;
+    } while (Math.round(Math.abs(bytes) * r) / r >= thresh && u < units.length - 1);
+
+
+    return bytes.toFixed(dp) + units[u];
   }
 }
 
