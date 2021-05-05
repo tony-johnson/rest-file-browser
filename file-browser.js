@@ -1,6 +1,9 @@
 import { LitElement, html, css } from 'lit-element';
 import { repeat } from 'lit-html/directives/repeat.js';
 
+import { initializeApp } from 'firebase/app';
+import { GithubAuthProvider, getAuth, onAuthStateChanged, signOut, signInWithRedirect, getRedirectResult} from 'firebase/auth';
+
 import 'ace-builds/src-noconflict/ace.js';
 import 'ace-builds/src-noconflict/ext-modelist.js';
 import 'ace-builds/src-noconflict/snippets/snippets.js';
@@ -27,6 +30,7 @@ export class FileBrowser extends LitElement {
       path: { type: String, notify: true },
       filePrefix: { type: String, notify: true },
       context: { type: String, notify: true },
+      user: { type: String, notify: true },
     };
   }
 
@@ -37,15 +41,74 @@ export class FileBrowser extends LitElement {
     this.context = '';
     this.data = {};
     this.path = ".";
+    this.user;
+
+    // Your web app's Firebase configuration
+    var firebaseConfig = {
+      apiKey: "AIzaSyCttqU-vwitkbeVA4-E4hFuNmV1WR32mKo",
+      authDomain: "ccs-rest.firebaseapp.com",
+      projectId: "ccs-rest",
+      storageBucket: "ccs-rest.appspot.com",
+      messagingSenderId: "393539384742",
+      appId: "1:393539384742:web:700f0a54b0847572790b67"
+    };
+
+    this.firebaseApp = initializeApp(firebaseConfig);
+    const auth = getAuth();
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        // User is signed in, see docs for a list of available properties
+        // https://firebase.google.com/docs/reference/js/firebase.User
+        this.user = user;
+        getRedirectResult(auth).then((result) => {
+          // This gives you a GitHub Access Token. You can use it to access the GitHub API.
+          const credential = GithubAuthProvider.credentialFromResult(result);
+          console.log(credenial);
+          const token = credential.accessToken;
+          console.log("token="+token);
+
+          // The signed-in user info.
+          const user = result.user;
+          // ...
+        }).catch((error) => {
+          // Handle Errors here.
+          const errorCode = error.code;
+          const errorMessage = error.message;
+          // The email of the user's account used.
+          const email = error.email;
+          // The AuthCredential type that was used.
+          const credential = GithubAuthProvider.credentialFromError(error);
+          // ...
+        });
+      } else {
+        this.user = null;
+      }
+    });
   }
 
   render() {
 
     return html`
+      ${this.user ? html`Hello ${this.user.displayName} <a @click=${this._logout} href="#">Logout</a>` : html`<a @click=${this._login} href="#">Login</a>`}
       <path-browser @path-changed=${this._pathChanged} path=${this.path}></path-browser>
       ${this.data.versionedFile ? this._renderVersionedFile(this.data) : this.data.children != null ? this._renderFolder(this.data) : this._renderFile(this.data)}
       `;
+  }
 
+  _login() {
+    const auth = getAuth();
+    const provider = new GithubAuthProvider();
+    //provider.addScope('read:org');
+    signInWithRedirect(auth, provider);
+  }
+
+  _logout() {
+    const auth = getAuth();
+    signOut(auth).then(() => {
+      this.user = null;
+    }).catch((error) => {
+      // An error happened.
+    });
   }
 
   _renderFolder(data) {
@@ -70,7 +133,7 @@ export class FileBrowser extends LitElement {
 
   _renderVersionedFile(data) {
     return html`
-      <file-versions restURL="${this.restURL}" path="${this.path}" name=${data.name}></file-versions>
+      <file-versions restURL="${this.restURL}" path="${this.path}" name=${data.name} ?allowChanges=${this.user != null}></file-versions>
     `;
   }
 
@@ -113,7 +176,7 @@ export class FileBrowser extends LitElement {
 
   _gotoFile(e) {
     e.preventDefault();
-    // Dragons: Browser incompatibility. Tested with chrome and firefox
+    // Dragons: Browser incompatibility. Tested with chrome and firefox, apparently does not work with Safari
     let textContent = e.path ? e.path[0].textContent : e.originalTarget.textContent;
     let newPath = this.path + "/" + textContent
     this._goto(newPath);
@@ -272,13 +335,11 @@ export class AceEditor extends LitElement {
   }
 
   _sendFileChangedEvent(fileChanged) {
-    console.log("Filechanged=" + fileChanged);
     let event = new CustomEvent('file-changed', {
       detail: {
         isChanged: fileChanged
       }
     });
-    console.log(event);
     this.dispatchEvent(event);
   }
 
@@ -313,6 +374,7 @@ export class FileVersions extends LitElement {
       selectedVersion: { type: String, notify: true },
       fileChanged: { type: Boolean, notify: true },
       readOnly: { type: Boolean, notify: true },
+      allowChanges: { type: Boolean, notify: true },
     };
   };
 
@@ -324,6 +386,7 @@ export class FileVersions extends LitElement {
     this.selectedVersion = 'default';
     this.fileChanged = false;
     this.readOnly = true;
+    this.allowChanges = false;
   }
 
   render() {
@@ -341,7 +404,7 @@ export class FileVersions extends LitElement {
               <td>${dtf.format(row.lastModified)}</td>
               <td>
             ${row.version == this.data.latest ? html`<b>latest</b>` : null}
-            ${row.version == this.data.default ? html`<b>default</b>` : html`<button id=${row.version} @click=${this._makeDefault}>Make Default</button>`}
+            ${row.version == this.data.default ? html`<b>default</b>` : this.allowChanges ? html`<button id=${row.version} @click=${this._makeDefault}>Make Default</button>` : null}
             (<a href="${this.restURL + 'version/download/' + this.path + "?version=" + row.version}">download</a>)
               </td>
             </tr>
@@ -355,10 +418,12 @@ export class FileVersions extends LitElement {
           <option value=${row.version} ?selected=${this.selectedVersion == row.version}>${row.version}</option>
         `)}
         </select>
-        <button @click=${this._edit} ?disabled=${!this.readOnly}>Edit</button>
-        <button @click=${this._cancel} ?disabled=${this.readOnly}>Cancel</button>
-        <button @click=${this._save} ?disabled=${!this.fileChanged}>Save</button>
-        <button>Diff Viewer</button>
+
+        ${this.allowChanges ? html`
+          <button @click=${this._edit} ?disabled=${!this.readOnly}>Edit</button>
+          <button @click=${this._cancel} ?disabled=${this.readOnly}>Cancel</button>
+          <button @click=${this._save} ?disabled=${!this.fileChanged}>Save</button>
+          <button>Diff Viewer (coming soon)</button>` : null}
         <ace-editor @file-changed=${this._fileChanged} ?readonly=${this.readOnly} name=${this.name} fileURL="${this.restURL + "version/download/" + this.path + "?version=" + (this.selectedVersion == "default" && this.data.default ? this.data.default : this.selectedVersion)}"></ace-editor>
     `;
   }
