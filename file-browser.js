@@ -96,16 +96,11 @@ export class FileBrowser extends LitElement {
   }
 
   firstUpdated(changedProperties) {
-    console.log(this.context);
     ace.config.set('basePath', this.context + '/ace');
-    console.log(window.location.pathname);
     this.path = window.location.pathname.replace(this.filePrefix, '.');
-    console.log(this.path);
     if (this.path == "./") this.path = ".";
-    console.log(this.path);
     this._updateData();
     window.onpopstate = (e) => {
-      console.log(e.state);
       this._goto(e.state == null ? "." : e.state);
     };
   }
@@ -118,7 +113,9 @@ export class FileBrowser extends LitElement {
 
   _gotoFile(e) {
     e.preventDefault();
-    let newPath = this.path + "/" + e.path[0].textContent
+    // Dragons: Browser incompatibility. Tested with chrome and firefox
+    let textContent = e.path ? e.path[0].textContent : e.originalTarget.textContent;
+    let newPath = this.path + "/" + textContent
     this._goto(newPath);
     window.history.pushState(newPath, 'Content', this.filePrefix + newPath.substring(1));
   }
@@ -215,6 +212,8 @@ export class AceEditor extends LitElement {
   constructor() {
     super();
     this.readonly = false;
+    this.fileChanged = false;
+    this.loading = false;
   }
 
   render() {
@@ -229,25 +228,33 @@ export class AceEditor extends LitElement {
   firstUpdated(changedProperties) {
     let div = this.shadowRoot.getElementById('editor');
     this.editor = ace.edit(div, { readOnly: this.readonly });
-    this.editor.setValue("Loading...");
     var modelist = ace.require("ace/ext/modelist");
     let mode = modelist.getModeForPath(this.name).mode;
-    console.log(mode);
     this.editor.session.setMode(mode);
     this.editor.renderer.attachToShadowRoot();
+    this.editor.getSession().on('change', () => this._changed());
+    this._load(this.fileURL);
+  }
+
+  _load(url) {
+    this.loading = true;
+    this.editor.setValue("Loading...");
     fetch(this.fileURL)
       .then(response => response.text())
-      .then(text => this.editor.setValue(text, -1));
+      .then(text => {
+        this.editor.setValue(text, -1);
+        this.editor.session.getUndoManager().reset();
+        this.fileChanged = false;
+        this.loading = false;
+      });
   }
 
   updated(changedProperties) {
     if (changedProperties.get("fileURL")) {
-      this.editor.setValue("Loading...");
-      fetch(this.fileURL)
-        .then(response => response.text())
-        .then(text => this.editor.setValue(text, -1));
-    } else if (changedProperties.get("readonly")) {
-      this.editor.setOption("readOnly", this.readonly);
+      this._load(this.fileURL);
+    }
+    if (changedProperties.get("readonly") != undefined) {
+      this.editor.setReadOnly(this.readonly);
     }
   }
 
@@ -255,6 +262,35 @@ export class AceEditor extends LitElement {
     let text = this.editor.getValue();
     return fetch(url, { method: 'POST', body: text, headers: { 'Content-type': 'application/octet-stream' } })
       .then(response => response.json());
+  }
+
+  _changed() {
+    if (!this.loading) {
+      this.fileChanged = this.editor.session.getUndoManager().hasUndo();
+      this._sendFileChangedEvent(this.fileChanged);
+    }
+  }
+
+  _sendFileChangedEvent(fileChanged) {
+    console.log("Filechanged=" + fileChanged);
+    let event = new CustomEvent('file-changed', {
+      detail: {
+        isChanged: fileChanged
+      }
+    });
+    console.log(event);
+    this.dispatchEvent(event);
+  }
+
+  reset() {
+    if (this.fileChanged) {
+      this._load(this.fileURL);
+      this._sendFileChangedEvent(false);
+    }
+  }
+
+  focus() {
+    this.editor.focus()
   }
 
 }
@@ -275,6 +311,8 @@ export class FileVersions extends LitElement {
       path: { type: String, notify: true },
       name: { type: String, notify: true },
       selectedVersion: { type: String, notify: true },
+      fileChanged: { type: Boolean, notify: true },
+      readOnly: { type: Boolean, notify: true },
     };
   };
 
@@ -284,6 +322,8 @@ export class FileVersions extends LitElement {
     this.data = { "versions": [] };
     this.path = ".";
     this.selectedVersion = 'default';
+    this.fileChanged = false;
+    this.readOnly = true;
   }
 
   render() {
@@ -308,14 +348,18 @@ export class FileVersions extends LitElement {
           `)}
         </tbody>
       </table>
-      Version: <select id="selectedVersion" @change=${this._selectionChanged}>
+      Version: <select id="selectedVersion" @change=${this._selectionChanged} ?disabled=${!this.readOnly}>
         <option value="default" ?selected=${this.selectedVersion == "default"}>default</option>
         <option value="latest" ?selected=${this.selectedVersion == "latest"}>latest</option>
         ${repeat(this.data.versions, (row) => row.version, (row, index) => html`
           <option value=${row.version} ?selected=${this.selectedVersion == row.version}>${row.version}</option>
         `)}
-        </select><button @click=${this._edit}>Edit</button><button @click=${this._save}>Save</button><button>Diff Viewer</button>
-        <ace-editor readonly name=${this.name} fileURL="${this.restURL + "version/download/" + this.path + "?version=" + (this.selectedVersion == "default" && this.data.default ? this.data.default : this.selectedVersion)}"></ace-editor>
+        </select>
+        <button @click=${this._edit} ?disabled=${!this.readOnly}>Edit</button>
+        <button @click=${this._cancel} ?disabled=${this.readOnly}>Cancel</button>
+        <button @click=${this._save} ?disabled=${!this.fileChanged}>Save</button>
+        <button>Diff Viewer</button>
+        <ace-editor @file-changed=${this._fileChanged} ?readonly=${this.readOnly} name=${this.name} fileURL="${this.restURL + "version/download/" + this.path + "?version=" + (this.selectedVersion == "default" && this.data.default ? this.data.default : this.selectedVersion)}"></ace-editor>
     `;
   }
 
@@ -342,14 +386,32 @@ export class FileVersions extends LitElement {
   }
 
   _edit() {
+    this.readOnly = false;
     let editor = this.shadowRoot.querySelector("ace-editor");
     editor.readonly = false;
+    editor.focus();
   }
 
+  _cancel() {
+    let editor = this.shadowRoot.querySelector("ace-editor");
+    if (editor.fileChanged) {
+      editor.reset();
+    }
+    editor.readonly = true;
+    this.readOnly = true;
+  }
+
+  _fileChanged(e) {
+    this.fileChanged = e.detail.isChanged;
+  }
 
   _save() {
     let editor = this.shadowRoot.querySelector("ace-editor");
     editor.postTo(this.restURL + "version/upload/" + this.path).then((data) => this._updateData());
+    this.fileChanged = false;
+    editor.readonly = false;
+    this.readOnly = true;
+    this.selectedVersion = 'latest';
   }
 }
 
