@@ -231,7 +231,8 @@ export class PathBrowser extends LitElement {
   }
 
   _gotoPath(e) {
-    let index = parseInt(e.path[0].id);
+    // Dragons: Browser incompatibility. Tested with chrome and firefox, apparently does not work with Safari
+    let index = e.path ? e.path[0].id : e.originalTarget.id;
     let parts = this.path.split('/');
 
     let newPath = parts.slice(0, index + 1).join('/');
@@ -444,7 +445,8 @@ export class FileVersions extends LitElement {
   }
 
   _makeDefault(e) {
-    let defaultId = parseInt(e.path[0].id);
+    // Dragons: Browser incompatibility. Tested with chrome and firefox, apparently does not work with Safari
+    let defaultId = e.path ? e.path[0].id : e.originalTarget.id;
     fetch(this.restURL + "version/set/" + this.path, { method: 'PUT', body: JSON.stringify(defaultId), headers: { 'Content-type': 'application/json; charset=UTF-8' } })
       .then(response => response.json())
       .then(versions => this.data = versions);
