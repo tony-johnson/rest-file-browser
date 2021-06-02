@@ -30,6 +30,7 @@ export default {
   output: {
     file: 'dist/file-browser.bundled.js',
     format: 'esm',
+    sourcemap: true
   },
   onwarn(warning) {
     if (warning.code !== 'THIS_IS_UNDEFINED') {

@@ -232,7 +232,7 @@ export class PathBrowser extends LitElement {
 
   _gotoPath(e) {
     // Dragons: Browser incompatibility. Tested with chrome and firefox, apparently does not work with Safari
-    let index = e.path ? e.path[0].id : e.originalTarget.id;
+    let index = e.path ? parseInt(e.path[0].id) : parseInt(e.originalTarget.id);
     let parts = this.path.split('/');
 
     let newPath = parts.slice(0, index + 1).join('/');
