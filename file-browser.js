@@ -10,6 +10,8 @@ import 'ace-builds/src-noconflict/snippets/snippets.js';
 
 import { Instant, LocalDateTime, DateTimeFormatter } from '@js-joda/core';
 
+let jwt = null;
+
 /**
  * An example for browsing files in rest-server.
  *
@@ -60,15 +62,17 @@ export class FileBrowser extends LitElement {
         // User is signed in, see docs for a list of available properties
         // https://firebase.google.com/docs/reference/js/firebase.User
         this.user = user;
+        user.getIdToken().then((token) => {
+          jwt = token;
+        });
         getRedirectResult(auth).then((result) => {
           // This gives you a GitHub Access Token. You can use it to access the GitHub API.
-          const credential = GithubAuthProvider.credentialFromResult(result);
-          console.log(credenial);
-          const token = credential.accessToken;
-          console.log("token="+token);
-
-          // The signed-in user info.
-          const user = result.user;
+          if (result != null) {
+            const credential = GithubAuthProvider.credentialFromResult(result);
+            const token = credential.accessToken;
+            // The signed-in user info.
+            const user = result.user;
+          }
           // ...
         }).catch((error) => {
           // Handle Errors here.
@@ -82,6 +86,7 @@ export class FileBrowser extends LitElement {
         });
       } else {
         this.user = null;
+        jwt == null;
       }
     });
   }
@@ -324,7 +329,9 @@ export class AceEditor extends LitElement {
 
   postTo(url) {
     let text = this.editor.getValue();
-    return fetch(url, { method: 'POST', body: text, headers: { 'Content-type': 'application/octet-stream' } })
+    let headers = { 'Content-type': 'application/octet-stream' };
+    if (jwt) headers['Authorization'] = 'Bearer '+jwt;
+    return fetch(url, { method: 'POST', 'body': text, 'headers': headers })
       .then(response => response.json());
   }
 
@@ -376,6 +383,7 @@ export class FileVersions extends LitElement {
       fileChanged: { type: Boolean, notify: true },
       readOnly: { type: Boolean, notify: true },
       allowChanges: { type: Boolean, notify: true },
+      showHidden: { type: Boolean, notify: true },
     };
   };
 
@@ -388,6 +396,7 @@ export class FileVersions extends LitElement {
     this.fileChanged = false;
     this.readOnly = true;
     this.allowChanges = false;
+    this.showHidden = false;
   }
 
   render() {
@@ -395,19 +404,20 @@ export class FileVersions extends LitElement {
     return html`
       <table>
         <thead>
-          <th>Version</th><th>Size</th><th>Date</th><th></th>
+          <tr><td colspan=3><input id="showHidden" type="checkbox" @click=${this._showHidden} ?checked=${this.showHidden}><label for="showHidden">Show Hidden</label></td></tr>
+          <tr><th>Hidden</th><th>Default</th><th>Latest</th><th>Version</th><th>Size</th><th>Date</th><th>Download</th><th>Comment</th></tr>
         </thead>
         <tbody>
-          ${repeat(this.data.versions, (row) => row.version, (row, index) => html`
+          ${repeat(this.data.versions, (row) => row.version, (row, index) => row.hidden && !this.showHidden ? null : html`
             <tr>
+              <td><input type="checkbox" id="h${row.version}" @click=${this._hide} ?checked=${row.hidden} ?disabled=${row.version == this.data.latest || row.version == this.data.default || !this.allowChanges}></td>
+              <td><input type="radio" name="default" id="d${row.version}" @click=${this._makeDefault} ?checked=${row.version == this.data.default} ?disabled=${row.hidden || !this.allowChanges}></td>
+              <td><input type="radio" name="latest" id="l${row.version}" ?checked=${row.version == this.data.latest} ?disabled=${row.version != this.data.latest}></td>
               <td>${row.version}</td>
               <td>${dtf.humanFileSize(row.size)}</td>
               <td>${dtf.format(row.lastModified)}</td>
-              <td>
-            ${row.version == this.data.latest ? html`<b>latest</b>` : null}
-            ${row.version == this.data.default ? html`<b>default</b>` : this.allowChanges ? html`<button id=${row.version} @click=${this._makeDefault}>Make Default</button>` : null}
-            (<a href="${this.restURL + 'version/download/' + this.path + "?version=" + row.version}">download</a>)
-              </td>
+              <td>(<a href="${this.restURL + 'version/download/' + this.path + "?version=" + row.version}">download</a>)</td>
+              <td><button id="b${row.version}" ?disabled=${!this.allowChanges} @click=${this._updateComment}>Update</button><input type="text" id="c${row.version}" value=${row.comment} ?disabled=${!this.allowChanges}></td>
             </tr>
           `)}
         </tbody>
@@ -434,7 +444,8 @@ export class FileVersions extends LitElement {
   }
 
   _updateData() {
-    fetch(this.restURL + "version/info/" + this.path)
+
+    fetch(this.restURL + "version/info/" + this.path, {'method': 'GET', 'headers':  {'x-protocol-version': '2'}})
       .then(response => response.json())
       .then(versions => this.data = versions);
   }
@@ -444,12 +455,42 @@ export class FileVersions extends LitElement {
     this.selectedVersion = selection.value;
   }
 
-  _makeDefault(e) {
+  _getSelectedVersion(e) {
     // Dragons: Browser incompatibility. Tested with chrome and firefox, apparently does not work with Safari
-    let defaultId = e.path ? e.path[0].id : e.originalTarget.id;
-    fetch(this.restURL + "version/set/" + this.path, { method: 'PUT', body: JSON.stringify(defaultId), headers: { 'Content-type': 'application/json; charset=UTF-8' } })
+    let id = e.path ? e.path[0].id : e.originalTarget.id;
+    return id.substring(1);
+  }
+
+  _makeDefault(e) {
+    let defaultVersion = this._getSelectedVersion(e);
+    let options = {'version': defaultVersion, 'default': true};
+    this._updateSettings(options);
+  }
+
+  _hide(e) {
+    let version = this._getSelectedVersion(e);
+    let hidden = this.data.versions[version-1].hidden;
+    let options = {'version': version, 'hidden': !hidden};
+    this._updateSettings(options);
+  }
+
+  _updateComment(e) {
+    let version = this._getSelectedVersion(e);
+    let comment = this.shadowRoot.querySelector("#c"+version).value;
+    let options = {'version': version, 'comment': comment};
+    this._updateSettings(options);
+  }
+
+  _updateSettings(options) {
+    let headers = { 'Content-type': 'application/json; charset=UTF-8', 'x-protocol-version': '2' };
+    if (jwt) headers['Authorization'] =  'Bearer '+jwt;
+    fetch(this.restURL + "version/setOptions/" + this.path, { 'method': 'PUT', 'body': JSON.stringify(options), 'headers': headers })
       .then(response => response.json())
       .then(versions => this.data = versions);
+  }
+
+  _showHidden(e) {
+    this.showHidden = !this.showHidden;
   }
 
   _edit() {
