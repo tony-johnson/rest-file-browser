@@ -133,6 +133,7 @@ export class FileBrowser extends LitElement {
         `)}
         </tbody>
       </table>
+      <!-- <form><input id="upload" type="file"><button @click=${this._upload} ?disabled=${this.user ==  null}>Upload</button></form> -->
     `;
   }
 
@@ -182,7 +183,7 @@ export class FileBrowser extends LitElement {
   _gotoFile(e) {
     e.preventDefault();
     // Dragons: Browser incompatibility. Tested with chrome and firefox, apparently does not work with Safari
-    let textContent = e.path ? e.path[0].textContent : e.originalTarget.textContent;
+    let textContent = e.path ? e.path[0].textContent : e.currentTarget.textContent;
     let newPath = this.path + "/" + textContent
     this._goto(newPath);
     window.history.pushState(newPath, 'Content', this.filePrefix + newPath.substring(1));
@@ -198,6 +199,13 @@ export class FileBrowser extends LitElement {
     this.data = {};
     this.path = path;
     this._updateData();
+  }
+
+  _upload(e) {
+    e.preventDefault();
+    let fileSelector = this.shadowRoot.querySelector("#upload");
+    fetch(this.restURL + "version/upload" + this.path + fileSelector.textContent)
+    console.log(e);
   }
 
 }
@@ -237,7 +245,7 @@ export class PathBrowser extends LitElement {
 
   _gotoPath(e) {
     // Dragons: Browser incompatibility. Tested with chrome and firefox, apparently does not work with Safari
-    let index = e.path ? parseInt(e.path[0].id) : parseInt(e.originalTarget.id);
+    let index = e.path ? parseInt(e.path[0].id) : parseInt(e.currentTarget.id);
     let parts = this.path.split('/');
 
     let newPath = parts.slice(0, index + 1).join('/');
@@ -457,7 +465,7 @@ export class FileVersions extends LitElement {
 
   _getSelectedVersion(e) {
     // Dragons: Browser incompatibility. Tested with chrome and firefox, apparently does not work with Safari
-    let id = e.path ? e.path[0].id : e.originalTarget.id;
+    let id = e.path ? e.path[0].id : e.currentTarget.id;
     return id.substring(1);
   }
 
