@@ -2,7 +2,7 @@ import { LitElement, html, css } from 'lit-element';
 import { repeat } from 'lit-html/directives/repeat.js';
 
 import { initializeApp } from 'firebase/app';
-import { GithubAuthProvider, getAuth, onAuthStateChanged, signOut, signInWithRedirect, getRedirectResult} from 'firebase/auth';
+import { GithubAuthProvider, getAuth, onAuthStateChanged, signOut, signInWithPopup, getRedirectResult} from 'firebase/auth';
 
 import 'ace-builds/src-noconflict/ace.js';
 import 'ace-builds/src-noconflict/ext-modelist.js';
@@ -76,6 +76,7 @@ export class FileBrowser extends LitElement {
           // ...
         }).catch((error) => {
           // Handle Errors here.
+          console.log(error.code)
           const errorCode = error.code;
           const errorMessage = error.message;
           // The email of the user's account used.
@@ -101,10 +102,11 @@ export class FileBrowser extends LitElement {
   }
 
   _login() {
+    console.log("Login")
     const auth = getAuth();
     const provider = new GithubAuthProvider();
     //provider.addScope('read:org');
-    signInWithRedirect(auth, provider);
+    signInWithPopup(auth, provider);
   }
 
   _logout() {
