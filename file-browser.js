@@ -33,6 +33,7 @@ export class FileBrowser extends LitElement {
       filePrefix: { type: String, notify: true },
       context: { type: String, notify: true },
       user: { type: String, notify: true },
+      requireLogin: {type: Boolean, notify: true},
     };
   }
 
@@ -43,7 +44,8 @@ export class FileBrowser extends LitElement {
     this.context = '';
     this.data = {};
     this.path = ".";
-    this.user;
+    this.requireLogin = false;
+    this.user = this.requireLogin ? null : "ccs";
 
     // Your web app's Firebase configuration
     var firebaseConfig = {
@@ -55,41 +57,43 @@ export class FileBrowser extends LitElement {
       appId: "1:393539384742:web:700f0a54b0847572790b67"
     };
 
-    this.firebaseApp = initializeApp(firebaseConfig);
-    const auth = getAuth();
-    onAuthStateChanged(auth, (user) => {
-      if (user) {
-        // User is signed in, see docs for a list of available properties
-        // https://firebase.google.com/docs/reference/js/firebase.User
-        this.user = user;
-        user.getIdToken().then((token) => {
-          jwt = token;
-        });
-        getRedirectResult(auth).then((result) => {
-          // This gives you a GitHub Access Token. You can use it to access the GitHub API.
-          if (result != null) {
-            const credential = GithubAuthProvider.credentialFromResult(result);
-            const token = credential.accessToken;
-            // The signed-in user info.
-            const user = result.user;
-          }
-          // ...
-        }).catch((error) => {
-          // Handle Errors here.
-          console.log(error.code)
-          const errorCode = error.code;
-          const errorMessage = error.message;
-          // The email of the user's account used.
-          const email = error.email;
-          // The AuthCredential type that was used.
-          const credential = GithubAuthProvider.credentialFromError(error);
-          // ...
-        });
-      } else {
-        this.user = null;
-        jwt == null;
-      }
-    });
+    if (this.requireLogin) {
+      this.firebaseApp = initializeApp(firebaseConfig);
+      const auth = getAuth();
+      onAuthStateChanged(auth, (user) => {
+        if (user) {
+          // User is signed in, see docs for a list of available properties
+          // https://firebase.google.com/docs/reference/js/firebase.User
+          this.user = user;
+          user.getIdToken().then((token) => {
+            jwt = token;
+          });
+          getRedirectResult(auth).then((result) => {
+            // This gives you a GitHub Access Token. You can use it to access the GitHub API.
+            if (result != null) {
+              const credential = GithubAuthProvider.credentialFromResult(result);
+              const token = credential.accessToken;
+              // The signed-in user info.
+              const user = result.user;
+            }
+            // ...
+          }).catch((error) => {
+            // Handle Errors here.
+            console.log(error.code)
+            const errorCode = error.code;
+            const errorMessage = error.message;
+            // The email of the user's account used.
+            const email = error.email;
+            // The AuthCredential type that was used.
+            const credential = GithubAuthProvider.credentialFromError(error);
+            // ...
+          });
+        } else {
+          this.user = null;
+          jwt == null;
+        }
+      });
+    }
   }
 
   render() {
