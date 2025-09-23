@@ -394,6 +394,9 @@ export class FileVersions extends LitElement {
       readOnly: { type: Boolean, notify: true },
       allowChanges: { type: Boolean, notify: true },
       showHidden: { type: Boolean, notify: true },
+      showDiff:{type:Boolean,notify: true},
+      diffVersion1:{type:String,notify: true},
+      diffVersion2:{type:String,notify: true},
     };
   };
 
@@ -432,23 +435,37 @@ export class FileVersions extends LitElement {
           `)}
         </tbody>
       </table>
-      Version: <select id="selectedVersion" @change=${this._selectionChanged} ?disabled=${!this.readOnly}>
-        <option value="default" ?selected=${this.selectedVersion == "default"}>default</option>
-        <option value="latest" ?selected=${this.selectedVersion == "latest"}>latest</option>
-        ${repeat(this.data.versions, (row) => row.version, (row, index) => html`
-          <option value=${row.version} ?selected=${this.selectedVersion == row.version}>${row.version}</option>
-        `)}
-        </select>
+      ${this.showDiff ? html`
+        <div id="diffViewer">Diff Viewer:
+          <select id="diffV1" @change=${this._diffSelectionChanged} data-side="v1">
+            ${repeat(this.data.versions, (t) => t.version, (t,i) => t.hidden && !this.showHidden ? null : html`<option value=${t.version} ?selected=${this.diffVersion1==t.version}>${t.version}</option>`)}
+          </select>
+          <button type="button" class="diff-swap" @click=${this._swapDiffVersions} title="Swap diff selections">⇄</button>
+          <select id="diffV2" @change=${this._diffSelectionChanged} data-side="v2">
+            ${repeat(this.data.versions, (t) => t.version, (t,i) => t.hidden && !this.showHidden ? null : html`<option value=${t.version} ?selected=${this.diffVersion2==t.version}>${t.version}</option>`)}
+          </select>
+          <button @click=${this._closeDiff}>Close</button>
+          <ace-editor readonly name="diff.diff" fileURL="${this.restURL+"version/diff/"+this.path+"?v1="+this.diffVersion1+"&v2="+this.diffVersion2}"></ace-editor>
+      </div>` : html`
+        Version: <select id="selectedVersion" @change=${this._selectionChanged} ?disabled=${!this.readOnly}>
+          <option value="default" ?selected=${this.selectedVersion == "default"}>default</option>
+          <option value="latest" ?selected=${this.selectedVersion == "latest"}>latest</option>
+          ${repeat(this.data.versions, (row) => row.version, (row, index) => row.hidden && !this.showHidden ? null : html`
+            <option value=${row.version} ?selected=${this.selectedVersion == row.version}>${row.version}</option>
+          `)}
+          </select>
 
-        ${this.allowChanges ? html`
-          <button @click=${this._edit} ?disabled=${!this.readOnly}>Edit</button>
-          <button @click=${this._cancel} ?disabled=${this.readOnly}>Cancel</button>
-          <button @click=${this._save} ?disabled=${!this.fileChanged}>Save</button>
-          <button>Diff Viewer (coming soon)</button>` : null}
-        <ace-editor @file-changed=${this._fileChanged} ?readonly=${this.readOnly} name=${this.name} fileURL="${this.restURL + "version/download/" + this.path + "?version=" + (this.selectedVersion == "default" && this.data.default ? this.data.default : this.selectedVersion)}"></ace-editor>
+          ${this.allowChanges ? html`
+            <button @click=${this._edit} ?disabled=${!this.readOnly}>Edit</button>
+            <button @click=${this._cancel} ?disabled=${this.readOnly}>Cancel</button>
+            <button @click=${this._save} ?disabled=${!this.fileChanged}>Save</button>` : null}
+          <button class="diff-viewer-button" @click=${this._showDiff} ?disabled=${this.data.versions.filter((t) => !t.hidden).length < 2 }>
+            Diff Viewer&nbsp;🆕
+          </button>
+          <ace-editor @file-changed=${this._fileChanged} ?readonly=${this.readOnly} name=${this.name} fileURL="${this.restURL + "version/download/" + this.path + "?version=" + (this.selectedVersion == "default" && this.data.default ? this.data.default : this.selectedVersion)}"></ace-editor>
+        `}
     `;
   }
-
   firstUpdated(changedProperties) {
     this._updateData();
   }
@@ -517,6 +534,34 @@ export class FileVersions extends LitElement {
     }
     editor.readonly = true;
     this.readOnly = true;
+  }
+
+  _showDiff() {
+    let t=this.data.versions.filter(t=>!t.hidden);
+    if(t.length>1){
+      this.diffVersion2=String(this.data.latest);
+      if (this.data.default && this.data.default!=this.data.latest && !this.data.versions[this.data.default-1].hidden) {
+        this.diffVersion1=String(this.data.default);
+      } else {
+        let i = t.findIndex(e => e.version == this.data.latest);
+        this.diffVersion1 = i > 0 ? String(t[i-1].version) : String(this.data.latest);
+      }
+      this.showDiff = true;
+    }
+  }
+
+  _closeDiff() {
+    this.showDiff= false
+  }
+
+  _swapDiffVersions() {
+    const v1 = this.diffVersion1;
+    this.diffVersion1 = this.diffVersion2;
+    this.diffVersion2 = v1;
+  }
+
+  _diffSelectionChanged(t) {
+    "v1" == t.target.dataset.side ? this.diffVersion1 = t.target.value : this.diffVersion2 = t.target.value;
   }
 
   _fileChanged(e) {
