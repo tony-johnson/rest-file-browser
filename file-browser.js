@@ -407,8 +407,9 @@ export class AceEditor extends LitElement {
       .then(text => {
         this.editor.setValue(text, -1);
         this.editor.session.getUndoManager().reset();
-        this.fileChanged = false;
         this.loading = false;
+        this.fileChanged = false;
+        this._sendFileChangedEvent(false);
       });
   }
 
@@ -486,6 +487,8 @@ export class FileVersions extends LitElement {
       diffVersion1:{type:String,notify: true},
       diffVersion2:{type:String,notify: true},
       newComment:{type:String,notify: true},
+      editingVersion:{type:String,notify: true},
+      showEditDiff:{type:Boolean,notify: true},
     };
   };
 
@@ -500,6 +503,8 @@ export class FileVersions extends LitElement {
     this.allowChanges = false;
     this.showHidden = false;
     this.newComment = '';
+    this.editingVersion = null;
+    this.showEditDiff = false;
   }
 
   render() {
@@ -549,10 +554,11 @@ export class FileVersions extends LitElement {
             <button @click=${this._edit} ?disabled=${!this.readOnly}>Edit</button>
             <button @click=${this._cancel} ?disabled=${this.readOnly}>Cancel</button>
             <button @click=${this._save} ?disabled=${!this.fileChanged}>Save</button>` : null}
-          <button class="diff-viewer-button" @click=${this._showDiff} ?disabled=${this.data.versions.filter((t) => !t.hidden).length < 2 }>
+          <button class="diff-viewer-button" @click=${this.readOnly ? this._showDiff : this._showEditDiff} ?disabled=${this.readOnly ? this.data.versions.filter((t) => !t.hidden).length < 2 : this.showEditDiff}>
             Diff Viewer&nbsp;🆕
           </button>
           ${!this.readOnly ? this._renderEditingBanner() : null}
+          ${this.showEditDiff ? this._renderEditDiff() : null}
           <ace-editor @file-changed=${this._fileChanged} ?readonly=${this.readOnly} name=${this.name} fileURL="${this.restURL + "version/download/" + this.path + "?version=" + (this.selectedVersion == "default" && this.data.default ? this.data.default : this.selectedVersion)}"></ace-editor>
         `}
     `;
@@ -627,6 +633,12 @@ export class FileVersions extends LitElement {
 
   _edit() {
     this.newComment = '';
+    this.showEditDiff = false;
+    this.editingVersion = this.selectedVersion === 'default' && this.data.default
+      ? String(this.data.default)
+      : this.selectedVersion === 'latest' && this.data.latest
+        ? String(this.data.latest)
+        : this.selectedVersion;
     this.readOnly = false;
     let editor = this.shadowRoot.querySelector("ace-editor");
     editor.readonly = false;
@@ -634,12 +646,100 @@ export class FileVersions extends LitElement {
   }
 
   _cancel() {
-    let editor = this.shadowRoot.querySelector("ace-editor");
+    let editor = this.shadowRoot.querySelector('ace-editor:not(#editDiffEditor)');
     if (editor.fileChanged) {
       editor.reset();
     }
     editor.readonly = true;
     this.readOnly = true;
+    this.fileChanged = false;
+    this.showEditDiff = false;
+  }
+
+  _showEditDiff() {
+    this.showEditDiff = !this.showEditDiff;
+    if (this.showEditDiff) this._refreshEditDiff();
+  }
+
+  _refreshEditDiff() {
+    const editor = this.shadowRoot.querySelector('ace-editor:not(#editDiffEditor)');
+    const currentText = editor ? editor.editor.getValue() : '';
+    fetch(this.restURL + 'version/download/' + this.path + '?version=' + this.editingVersion)
+      .then(r => r.text())
+      .then(originalText => {
+        const patch = this._createUnifiedDiff('version ' + this.editingVersion, 'current edits', originalText, currentText);
+        const diffEditor = this.shadowRoot.querySelector('#editDiffEditor');
+        if (diffEditor) {
+          diffEditor.loading = true;
+          diffEditor.editor.setValue(patch, -1);
+          diffEditor.editor.session.getUndoManager().reset();
+          diffEditor.loading = false;
+        }
+      });
+  }
+
+  _createUnifiedDiff(oldName, newName, oldText, newText) {
+    const oldLines = oldText.split('\n');
+    const newLines = newText.split('\n');
+    // Build LCS-based edit script
+    const m = oldLines.length, n = newLines.length;
+    const dp = Array.from({length: m + 1}, () => new Array(n + 1).fill(0));
+    for (let i = m - 1; i >= 0; i--)
+      for (let j = n - 1; j >= 0; j--)
+        dp[i][j] = oldLines[i] === newLines[j] ? dp[i+1][j+1] + 1 : Math.max(dp[i+1][j], dp[i][j+1]);
+    // Walk edit script into hunks
+    const CONTEXT = 3;
+    const edits = [];
+    let i = 0, j = 0;
+    while (i < m || j < n) {
+      if (i < m && j < n && oldLines[i] === newLines[j]) {
+        edits.push({type: ' ', line: oldLines[i], oi: i, ni: j});
+        i++; j++;
+      } else if (j < n && (i >= m || dp[i][j+1] >= dp[i+1][j])) {
+        edits.push({type: '+', line: newLines[j], oi: i, ni: j});
+        j++;
+      } else {
+        edits.push({type: '-', line: oldLines[i], oi: i, ni: j});
+        i++;
+      }
+    }
+    // Group into hunks with context
+    const changed = edits.map((e, idx) => e.type !== ' ' ? idx : -1).filter(x => x >= 0);
+    if (!changed.length) return `--- ${oldName}\n+++ ${newName}\n(no differences)`;
+    const hunks = [];
+    let hunk = null;
+    for (const ci of changed) {
+      const start = Math.max(0, ci - CONTEXT), end = Math.min(edits.length - 1, ci + CONTEXT);
+      if (!hunk || start > hunk.end + 1) {
+        if (hunk) hunks.push(hunk);
+        hunk = {start, end, indices: []};
+      } else {
+        hunk.end = Math.max(hunk.end, end);
+      }
+      hunk.indices.push(ci);
+    }
+    if (hunk) hunks.push(hunk);
+    const lines = [`--- ${oldName}`, `+++ ${newName}`];
+    for (const h of hunks) {
+      const slice = edits.slice(h.start, h.end + 1);
+      const oldStart = (slice.find(e => e.type !== '+') || slice[0]).oi + 1;
+      const newStart = (slice.find(e => e.type !== '-') || slice[0]).ni + 1;
+      const oldCount = slice.filter(e => e.type !== '+').length;
+      const newCount = slice.filter(e => e.type !== '-').length;
+      lines.push(`@@ -${oldStart},${oldCount} +${newStart},${newCount} @@`);
+      for (const e of slice) lines.push(e.type + e.line);
+    }
+    return lines.join('\n');
+  }
+
+  _renderEditDiff() {
+    return html`
+      <div style="margin:0.5em 0">
+        <span>Diff vs saved version ${this.editingVersion}</span>
+        <button @click=${this._refreshEditDiff} style="margin-left:0.5em">Refresh</button>
+        <button @click=${() => this.showEditDiff = false} style="margin-left:0.5em">Close</button>
+        <ace-editor id="editDiffEditor" readonly name="diff.diff"></ace-editor>
+      </div>`;
   }
 
   _showDiff() {
@@ -676,13 +776,14 @@ export class FileVersions extends LitElement {
 
   _save() {
     if (!this.newComment && !window.confirm('Save file with no comment?')) return;
-    let editor = this.shadowRoot.querySelector("ace-editor");
-    // TODO: version/upload does not yet support ?comment= — backend needs to be updated to accept and store it
+    let editor = this.shadowRoot.querySelector('ace-editor:not(#editDiffEditor)');
     const url = this.restURL + "version/upload/" + this.path + (this.newComment ? '?comment=' + encodeURIComponent(this.newComment) : '');
     editor.postTo(url).then((data) => {
       this.fileChanged = false;
-      editor.readonly = false;
+    editor.readonly = false;
       this.readOnly = true;
+      this.fileChanged = false;
+      this.showEditDiff = false;
       this.selectedVersion = 'latest';
       this._updateData();
     });
