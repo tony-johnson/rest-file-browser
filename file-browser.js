@@ -33,6 +33,9 @@ export class FileBrowser extends LitElement {
       filePrefix: { type: String, notify: true },
       context: { type: String, notify: true },
       user: { type: String, notify: true },
+      showNewFileDialog: { type: Boolean, notify: true },
+      newFileName: { type: String, notify: true },
+      newFileVersioned: { type: Boolean, notify: true },
     };
   }
 
@@ -44,6 +47,9 @@ export class FileBrowser extends LitElement {
     this.data = {};
     this.path = ".";
     this.user;
+    this.showNewFileDialog = false;
+    this.newFileName = '';
+    this.newFileVersioned = true;
 
     // Your web app's Firebase configuration
     var firebaseConfig = {
@@ -98,6 +104,7 @@ export class FileBrowser extends LitElement {
       ${this.user ? html`Hello ${this.user.displayName} <a @click=${this._logout} href="#">Logout</a>` : html`<a @click=${this._login} href="#">Login</a>`}
       <path-browser @path-changed=${this._pathChanged} path=${this.path}></path-browser>
       ${this.data.versionedFile ? this._renderVersionedFile(this.data) : this.data.children != null ? this._renderFolder(this.data) : this._renderFile(this.data)}
+      ${this.showNewFileDialog ? this._renderNewFileDialog() : null}
       `;
   }
 
@@ -135,7 +142,8 @@ export class FileBrowser extends LitElement {
         `)}
         </tbody>
       </table>
-      <!-- <form><input id="upload" type="file"><button @click=${this._upload} ?disabled=${this.user ==  null}>Upload</button></form> -->
+      <button @click=${this._addFolder} ?disabled=${this.user == null}>Add Folder</button>
+      <button @click=${this._openNewFileDialog} ?disabled=${this.user == null}>Add File</button>
     `;
   }
 
@@ -208,6 +216,82 @@ export class FileBrowser extends LitElement {
     let fileSelector = this.shadowRoot.querySelector("#upload");
     fetch(this.restURL + "version/upload" + this.path + fileSelector.textContent)
     console.log(e);
+  }
+
+  _addFolder(e) {
+    const name = window.prompt('Folder name:');
+    if (!name) return;
+    const path = this.path === '.' ? name : this.path + '/' + name;
+    const headers = {};
+    if (jwt) headers['Authorization'] = 'Bearer ' + jwt;
+    fetch(this.restURL + 'createDirectory/' + path, { method: 'POST', headers })
+      .then(() => this._updateData());
+  }
+
+  _openNewFileDialog() {
+    this.newFileName = '';
+    this.newFileVersioned = true;
+    this.showNewFileDialog = true;
+  }
+
+  _closeNewFileDialog() {
+    this.showNewFileDialog = false;
+  }
+
+  _renderNewFileDialog() {
+    return html`
+      <div style="position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center">
+        <div style="background:white;padding:1.5em;min-width:640px;max-width:90vw;border-radius:4px;box-shadow:0 4px 24px rgba(0,0,0,0.3)">
+          <h3 style="margin-top:0">New File</h3>
+          <div style="margin-bottom:0.75em">
+            <label>Name: <input type="text" .value=${this.newFileName} @input=${e => this.newFileName = e.target.value} style="width:300px"></label>
+          </div>
+          <div style="margin-bottom:0.75em">
+            <label><input type="checkbox" ?checked=${this.newFileVersioned} @change=${e => this.newFileVersioned = e.target.checked}> Versioned</label>
+          </div>
+          <ace-editor id="newFileEditor" name=${this.newFileName || 'untitled'}></ace-editor>
+          <div style="margin-top:0.75em">
+            <button @click=${this._saveNewFile} ?disabled=${!this.newFileName}>Save</button>
+            <button @click=${this._uploadToNewFileEditor}>Upload</button>
+            <button @click=${this._closeNewFileDialog}>Cancel</button>
+          </div>
+          <input type="file" id="newFileUploadInput" style="display:none" @change=${this._newFileUploadSelected}>
+        </div>
+      </div>
+    `;
+  }
+
+  _uploadToNewFileEditor() {
+    this.shadowRoot.querySelector('#newFileUploadInput').click();
+  }
+
+  _newFileUploadSelected(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!this.newFileName) this.newFileName = file.name;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const editor = this.shadowRoot.querySelector('#newFileEditor');
+      editor.editor.setValue(evt.target.result, -1);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }
+
+  _saveNewFile() {
+    const editor = this.shadowRoot.querySelector('#newFileEditor');
+    const content = editor.getContent();
+    const path = this.path === '.' ? this.newFileName : this.path + '/' + this.newFileName;
+    const url = this.newFileVersioned
+      ? this.restURL + 'version/upload/' + path
+      : this.restURL + 'upload/' + path;
+    const headers = { 'Content-type': 'application/octet-stream' };
+    if (jwt) headers['Authorization'] = 'Bearer ' + jwt;
+    fetch(url, { method: 'POST', body: content, headers })
+      .then(() => {
+        this._closeNewFileDialog();
+        this._updateData();
+      });
   }
 
 }
@@ -312,7 +396,7 @@ export class AceEditor extends LitElement {
     this.editor.session.setMode(mode);
     this.editor.renderer.attachToShadowRoot();
     this.editor.getSession().on('change', () => this._changed());
-    this._load(this.fileURL);
+    if (this.fileURL) this._load(this.fileURL);
   }
 
   _load(url) {
@@ -372,6 +456,10 @@ export class AceEditor extends LitElement {
     this.editor.focus()
   }
 
+  getContent() {
+    return this.editor ? this.editor.getValue() : '';
+  }
+
 }
 
 export class FileVersions extends LitElement {
@@ -397,6 +485,7 @@ export class FileVersions extends LitElement {
       showDiff:{type:Boolean,notify: true},
       diffVersion1:{type:String,notify: true},
       diffVersion2:{type:String,notify: true},
+      newComment:{type:String,notify: true},
     };
   };
 
@@ -410,6 +499,7 @@ export class FileVersions extends LitElement {
     this.readOnly = true;
     this.allowChanges = false;
     this.showHidden = false;
+    this.newComment = '';
   }
 
   render() {
@@ -417,7 +507,7 @@ export class FileVersions extends LitElement {
     return html`
       <table>
         <thead>
-          <tr><td colspan=3><input id="showHidden" type="checkbox" @click=${this._showHidden} ?checked=${this.showHidden}><label for="showHidden">Show Hidden</label></td></tr>
+          <tr><td colspan=3><input id="showHidden" type="checkbox" @click=${this._showHidden} ?checked=${this.showHidden} ?disabled=${!this.data.versions.some(v => v.hidden)} style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}><label for="showHidden" style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}>Show Hidden</label></td></tr>
           <tr><th>Hidden</th><th>Default</th><th>Latest</th><th>Version</th><th>Size</th><th>Date</th><th>Download</th><th>Comment</th></tr>
         </thead>
         <tbody>
@@ -430,7 +520,7 @@ export class FileVersions extends LitElement {
               <td>${dtf.humanFileSize(row.size)}</td>
               <td>${dtf.format(row.lastModified)}</td>
               <td>(<a href="${this.restURL + 'version/download/' + this.path + "?version=" + row.version}">download</a>)</td>
-              <td><button id="b${row.version}" ?disabled=${!this.allowChanges} @click=${this._updateComment}>Update</button><input type="text" id="c${row.version}" value=${row.comment} ?disabled=${!this.allowChanges}></td>
+              <td><button id="b${row.version}" ?disabled=${!this.allowChanges} @click=${this._updateComment}>Update</button><input type="text" id="c${row.version}" value=${row.comment} ?disabled=${!this.allowChanges} @blur=${this._updateComment} @keydown=${e => e.key === 'Enter' && this._updateComment(e)}></td>
             </tr>
           `)}
         </tbody>
@@ -445,7 +535,7 @@ export class FileVersions extends LitElement {
             ${repeat(this.data.versions, (t) => t.version, (t,i) => t.hidden && !this.showHidden ? null : html`<option value=${t.version} ?selected=${this.diffVersion2==t.version}>${t.version}</option>`)}
           </select>
           <button @click=${this._closeDiff}>Close</button>
-          <ace-editor readonly name="diff.diff" fileURL="${this.restURL+"version/diff/"+this.path+"?v1="+this.diffVersion1+"&v2="+this.diffVersion2}"></ace-editor>
+          <ace-editor readonly name="diff.diff" fileURL="${this.restURL+"version/diff/"+this.path+"?v2="+this.diffVersion1+"&v1="+this.diffVersion2}"></ace-editor>
       </div>` : html`
         Version: <select id="selectedVersion" @change=${this._selectionChanged} ?disabled=${!this.readOnly}>
           <option value="default" ?selected=${this.selectedVersion == "default"}>default</option>
@@ -462,10 +552,25 @@ export class FileVersions extends LitElement {
           <button class="diff-viewer-button" @click=${this._showDiff} ?disabled=${this.data.versions.filter((t) => !t.hidden).length < 2 }>
             Diff Viewer&nbsp;🆕
           </button>
+          ${!this.readOnly ? this._renderEditingBanner() : null}
           <ace-editor @file-changed=${this._fileChanged} ?readonly=${this.readOnly} name=${this.name} fileURL="${this.restURL + "version/download/" + this.path + "?version=" + (this.selectedVersion == "default" && this.data.default ? this.data.default : this.selectedVersion)}"></ace-editor>
         `}
     `;
   }
+  _renderEditingBanner() {
+    const effectiveVersion = this.selectedVersion === 'default' && this.data.default
+      ? this.data.default
+      : this.selectedVersion === 'latest' && this.data.latest
+        ? this.data.latest
+        : this.selectedVersion;
+    const isLatest = String(effectiveVersion) === String(this.data.latest);
+    return html`
+      <div style="margin:0.5em 0;padding:0.4em 0.75em;border-radius:3px;background:${isLatest ? '#e8f5e9' : '#fff3e0'};border:1px solid ${isLatest ? '#a5d6a7' : '#ffcc80'}">
+        Editing version ${effectiveVersion}${isLatest ? '' : html` &mdash; <strong>warning:</strong> this is not the latest version (latest is ${this.data.latest})`}
+        &nbsp;&nbsp;Comment: <input type="text" .value=${this.newComment} @input=${e => this.newComment = e.target.value} placeholder="(none)" style="width:300px">
+      </div>`;
+  }
+
   firstUpdated(changedProperties) {
     this._updateData();
   }
@@ -521,6 +626,7 @@ export class FileVersions extends LitElement {
   }
 
   _edit() {
+    this.newComment = '';
     this.readOnly = false;
     let editor = this.shadowRoot.querySelector("ace-editor");
     editor.readonly = false;
@@ -569,12 +675,17 @@ export class FileVersions extends LitElement {
   }
 
   _save() {
+    if (!this.newComment && !window.confirm('Save file with no comment?')) return;
     let editor = this.shadowRoot.querySelector("ace-editor");
-    editor.postTo(this.restURL + "version/upload/" + this.path).then((data) => this._updateData());
-    this.fileChanged = false;
-    editor.readonly = false;
-    this.readOnly = true;
-    this.selectedVersion = 'latest';
+    // TODO: version/upload does not yet support ?comment= — backend needs to be updated to accept and store it
+    const url = this.restURL + "version/upload/" + this.path + (this.newComment ? '?comment=' + encodeURIComponent(this.newComment) : '');
+    editor.postTo(url).then((data) => {
+      this.fileChanged = false;
+      editor.readonly = false;
+      this.readOnly = true;
+      this.selectedVersion = 'latest';
+      this._updateData();
+    });
   }
 }
 
