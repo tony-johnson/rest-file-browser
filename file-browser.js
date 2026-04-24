@@ -36,6 +36,8 @@ export class FileBrowser extends LitElement {
       showNewFileDialog: { type: Boolean, notify: true },
       newFileName: { type: String, notify: true },
       newFileVersioned: { type: Boolean, notify: true },
+      serverInfo: { type: Object, notify: true },
+      showHidden: { type: Boolean, notify: true },
     };
   }
 
@@ -50,6 +52,8 @@ export class FileBrowser extends LitElement {
     this.showNewFileDialog = false;
     this.newFileName = '';
     this.newFileVersioned = true;
+    this.serverInfo = { version: '1.0', capabilities: ['versionComments'] };
+    this.showHidden = false;
 
     // Your web app's Firebase configuration
     var firebaseConfig = {
@@ -127,18 +131,34 @@ export class FileBrowser extends LitElement {
 
   _renderFolder(data) {
     let dtf = new FileDateSizeFormatter();
+    const canHide = this.serverInfo.capabilities.includes('hideFiles');
+    const hasHidden = canHide && (this.data.hasHidden || this.data.children.some(r => r.hidden));
     return html`
       <table>
         <thead>
-          <th>Size</th><th>Date</th><th>File</th>
+          ${canHide ? html`
+            <tr><td colspan=4>
+              <input id="showHidden" type="checkbox" @click=${() => { this.showHidden = !this.showHidden; this._updateData(); }}
+                ?checked=${this.showHidden} ?disabled=${!hasHidden}
+                style=${!hasHidden ? 'opacity:0.4' : ''}>
+              <label for="showHidden" style=${!hasHidden ? 'opacity:0.4' : ''}>Show Hidden</label>
+            </td></tr>
+            <tr><th>Hidden</th><th>Size</th><th>Date</th><th>File</th></tr>
+          ` : html`
+            <tr><th>Size</th><th>Date</th><th>File</th></tr>
+          `}
         </thead>
         <tbody>
-        ${repeat(this.data.children, (row) => row.name, (row, index) => html`
+        ${repeat(this.data.children, (row) => row.name, (row, index) => row.hidden && !this.showHidden ? null : html`
           <tr class="file-list-element">
-             <td class="size"></div>${dtf.humanFileSize(row.size, true)}</td>
-             <td class="date">${dtf.format(row.lastModified)}</td>
-             <td class="name"><a href="#" @click=${this._gotoFile}>${row.name}</a></td>
-            </tr>
+            ${canHide ? html`
+              <td><input type="checkbox" @click=${(e) => this._hideEntry(e, row)}
+                ?checked=${row.hidden} ?disabled=${this.user == null}></td>
+            ` : null}
+            <td class="size">${dtf.humanFileSize(row.size, true)}</td>
+            <td class="date">${dtf.format(row.lastModified)}</td>
+            <td class="name"><a href="#" @click=${this._gotoFile}>${row.name}</a></td>
+          </tr>
         `)}
         </tbody>
       </table>
@@ -149,7 +169,7 @@ export class FileBrowser extends LitElement {
 
   _renderVersionedFile(data) {
     return html`
-      <file-versions restURL="${this.restURL}" path="${this.path}" name=${data.name} ?allowChanges=${this.user != null}></file-versions>
+      <file-versions restURL="${this.restURL}" path="${this.path}" name=${data.name} ?allowChanges=${this.user != null} .serverInfo=${this.serverInfo}></file-versions>
     `;
   }
 
@@ -181,14 +201,22 @@ export class FileBrowser extends LitElement {
       ? '.' + pathname.slice(this.filePrefix.length)
       : '.';
     this.path = stripped === './' ? '.' : stripped;
-    this._updateData();
+    fetch(this.restURL + 'serverInfo')
+      .then(response => {
+        if (!response.ok) throw new Error('not found');
+        return response.json();
+      })
+      .then(info => { this.serverInfo = info; })
+      .catch(() => { this.serverInfo = { version: '1.0', capabilities: ['versionComments'] }; })
+      .finally(() => this._updateData());
     window.onpopstate = (e) => {
       this._goto(e.state == null ? "." : e.state);
     };
   }
 
   _updateData() {
-    fetch(this.restURL + "list/" + this.path)
+    const url = this.restURL + "list/" + this.path + (this.showHidden ? '?showHidden=true' : '');
+    fetch(url)
       .then(response => response.json())
       .then(data => this.data = data);
   }
@@ -228,6 +256,15 @@ export class FileBrowser extends LitElement {
     const headers = {};
     if (jwt) headers['Authorization'] = 'Bearer ' + jwt;
     fetch(this.restURL + 'createDirectory/' + path, { method: 'POST', headers })
+      .then(() => this._updateData());
+  }
+
+  _hideEntry(e, row) {
+    const entryPath = this.path === '.' ? row.name : this.path + '/' + row.name;
+    const headers = { 'Content-type': 'application/json; charset=UTF-8' };
+    if (jwt) headers['Authorization'] = 'Bearer ' + jwt;
+    const options = { hidden: !row.hidden };
+    fetch(this.restURL + 'setOptions/' + entryPath, { method: 'PUT', body: JSON.stringify(options), headers })
       .then(() => this._updateData());
   }
 
@@ -493,6 +530,7 @@ export class FileVersions extends LitElement {
       editingVersion:{type:String,notify: true},
       showEditDiff:{type:Boolean,notify: true},
       showDefaultHistory:{type:Boolean,notify: true},
+      serverInfo:{type:Object,notify: true},
     };
   };
 
@@ -510,6 +548,7 @@ export class FileVersions extends LitElement {
     this.editingVersion = null;
     this.showEditDiff = false;
     this.showDefaultHistory = false;
+    this.serverInfo = { version: '1.0', capabilities: ['versionComments'] };
   }
 
   render() {
