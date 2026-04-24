@@ -22,6 +22,18 @@ export class FileBrowser extends LitElement {
       :host {
         display: block;
       }
+      .error-banner {
+        background: #fdd;
+        border: 1px solid #c00;
+        color: #c00;
+        padding: 6px 10px;
+        margin-bottom: 6px;
+        border-radius: 3px;
+      }
+      .error-banner button {
+        margin-left: 8px;
+        cursor: pointer;
+      }
     `;
   }
 
@@ -38,6 +50,7 @@ export class FileBrowser extends LitElement {
       newFileVersioned: { type: Boolean, notify: true },
       serverInfo: { type: Object, notify: true },
       showHidden: { type: Boolean, notify: true },
+      errorMessage: { type: String, notify: true },
     };
   }
 
@@ -54,6 +67,7 @@ export class FileBrowser extends LitElement {
     this.newFileVersioned = true;
     this.serverInfo = { version: '1.0', capabilities: ['versionComments'] };
     this.showHidden = false;
+    this.errorMessage = '';
 
     // Your web app's Firebase configuration
     var firebaseConfig = {
@@ -105,6 +119,7 @@ export class FileBrowser extends LitElement {
   render() {
 
     return html`
+      ${this.errorMessage ? html`<div class="error-banner">${this.errorMessage} <button @click=${() => this.errorMessage = ''}>✕</button></div>` : null}
       ${this.user ? html`Hello ${this.user.displayName} <a @click=${this._logout} href="#">Logout</a>` : html`<a @click=${this._login} href="#">Login</a>`}
       <path-browser @path-changed=${this._pathChanged} path=${this.path}></path-browser>
       ${this.data.versionedFile ? this._renderVersionedFile(this.data) : this.data.children != null ? this._renderFolder(this.data) : this._renderFile(this.data)}
@@ -217,8 +232,12 @@ export class FileBrowser extends LitElement {
   _updateData() {
     const url = this.restURL + "list/" + this.path + (this.showHidden ? '?showHidden=true' : '');
     fetch(url)
-      .then(response => response.json())
-      .then(data => this.data = data);
+      .then(response => {
+        if (!response.ok) throw new Error(`Failed to load folder (${response.status})`);
+        return response.json();
+      })
+      .then(data => this.data = data)
+      .catch(e => this.errorMessage = e.message);
   }
 
   _gotoFile(e) {
@@ -256,7 +275,11 @@ export class FileBrowser extends LitElement {
     const headers = {};
     if (jwt) headers['Authorization'] = 'Bearer ' + jwt;
     fetch(this.restURL + 'createDirectory/' + path, { method: 'POST', headers })
-      .then(() => this._updateData());
+      .then(response => {
+        if (!response.ok) throw new Error(`Failed to create folder (${response.status})`);
+      })
+      .then(() => this._updateData())
+      .catch(e => this.errorMessage = e.message);
   }
 
   _hideEntry(e, row) {
@@ -265,7 +288,11 @@ export class FileBrowser extends LitElement {
     if (jwt) headers['Authorization'] = 'Bearer ' + jwt;
     const options = { hidden: !row.hidden };
     fetch(this.restURL + 'setOptions/' + entryPath, { method: 'PUT', body: JSON.stringify(options), headers })
-      .then(() => this._updateData());
+      .then(response => {
+        if (!response.ok) throw new Error(`Failed to update entry (${response.status})`);
+      })
+      .then(() => this._updateData())
+      .catch(e => this.errorMessage = e.message);
   }
 
   _openNewFileDialog() {
@@ -328,10 +355,14 @@ export class FileBrowser extends LitElement {
     const headers = { 'Content-type': 'application/octet-stream' };
     if (jwt) headers['Authorization'] = 'Bearer ' + jwt;
     fetch(url, { method: 'POST', body: content, headers })
+      .then(response => {
+        if (!response.ok) throw new Error(`Failed to save file (${response.status})`);
+      })
       .then(() => {
         this._closeNewFileDialog();
         this._updateData();
-      });
+      })
+      .catch(e => this.errorMessage = e.message);
   }
 
 }
@@ -467,7 +498,10 @@ export class AceEditor extends LitElement {
     let headers = { 'Content-type': 'application/octet-stream' };
     if (jwt) headers['Authorization'] = 'Bearer '+jwt;
     return fetch(url, { method: 'POST', 'body': text, 'headers': headers })
-      .then(response => response.json());
+      .then(response => {
+        if (!response.ok) throw new Error(`Failed to save file (${response.status})`);
+        return response.json();
+      });
   }
 
   _changed() {
@@ -509,6 +543,18 @@ export class FileVersions extends LitElement {
         :host {
           display: block;
         }
+        .error-banner {
+          background: #fdd;
+          border: 1px solid #c00;
+          color: #c00;
+          padding: 6px 10px;
+          margin-bottom: 6px;
+          border-radius: 3px;
+        }
+        .error-banner button {
+          margin-left: 8px;
+          cursor: pointer;
+        }
     `;
   }
 
@@ -531,6 +577,7 @@ export class FileVersions extends LitElement {
       showEditDiff:{type:Boolean,notify: true},
       showDefaultHistory:{type:Boolean,notify: true},
       serverInfo:{type:Object,notify: true},
+      errorMessage:{type:String,notify: true},
     };
   };
 
@@ -549,11 +596,13 @@ export class FileVersions extends LitElement {
     this.showEditDiff = false;
     this.showDefaultHistory = false;
     this.serverInfo = { version: '1.0', capabilities: ['versionComments'] };
+    this.errorMessage = '';
   }
 
   render() {
     let dtf = new FileDateSizeFormatter();
     return html`
+      ${this.errorMessage ? html`<div class="error-banner">${this.errorMessage} <button @click=${() => this.errorMessage = ''}>✕</button></div>` : null}
       <table>
         <thead>
           <tr><td colspan=3><input id="showHidden" type="checkbox" @click=${this._showHidden} ?checked=${this.showHidden} ?disabled=${!this.data.versions.some(v => v.hidden)} style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}><label for="showHidden" style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}>Show Hidden</label></td></tr>
@@ -648,10 +697,13 @@ export class FileVersions extends LitElement {
   }
 
   _updateData() {
-
     fetch(this.restURL + "version/info/" + this.path, {'method': 'GET', 'headers':  {'x-protocol-version': '2'}})
-      .then(response => response.json())
-      .then(versions => this.data = versions);
+      .then(response => {
+        if (!response.ok) throw new Error(`Failed to load version info (${response.status})`);
+        return response.json();
+      })
+      .then(versions => this.data = versions)
+      .catch(e => this.errorMessage = e.message);
   }
 
   _selectionChanged() {
@@ -689,8 +741,12 @@ export class FileVersions extends LitElement {
     let headers = { 'Content-type': 'application/json; charset=UTF-8', 'x-protocol-version': '2' };
     if (jwt) headers['Authorization'] =  'Bearer '+jwt;
     fetch(this.restURL + "version/setOptions/" + this.path, { 'method': 'PUT', 'body': JSON.stringify(options), 'headers': headers })
-      .then(response => response.json())
-      .then(versions => this.data = versions);
+      .then(response => {
+        if (!response.ok) throw new Error(`Failed to update settings (${response.status})`);
+        return response.json();
+      })
+      .then(versions => this.data = versions)
+      .catch(e => this.errorMessage = e.message);
   }
 
   _showHidden(e) {
@@ -731,7 +787,10 @@ export class FileVersions extends LitElement {
     const editor = this.shadowRoot.querySelector('ace-editor:not(#editDiffEditor)');
     const currentText = editor ? editor.editor.getValue() : '';
     fetch(this.restURL + 'version/download/' + this.path + '?version=' + this.editingVersion)
-      .then(r => r.text())
+      .then(r => {
+        if (!r.ok) throw new Error(`Failed to load version ${this.editingVersion} (${r.status})`);
+        return r.text();
+      })
       .then(originalText => {
         const patch = this._createUnifiedDiff('version ' + this.editingVersion, 'current edits', originalText, currentText);
         const diffEditor = this.shadowRoot.querySelector('#editDiffEditor');
@@ -741,7 +800,8 @@ export class FileVersions extends LitElement {
           diffEditor.editor.session.getUndoManager().reset();
           diffEditor.loading = false;
         }
-      });
+      })
+      .catch(e => this.errorMessage = e.message);
   }
 
   _createUnifiedDiff(oldName, newName, oldText, newText) {
@@ -846,13 +906,13 @@ export class FileVersions extends LitElement {
     const url = this.restURL + "version/upload/" + this.path + (this.newComment ? '?comment=' + encodeURIComponent(this.newComment) : '');
     editor.postTo(url).then((data) => {
       this.fileChanged = false;
-    editor.readonly = false;
+      editor.readonly = false;
       this.readOnly = true;
       this.fileChanged = false;
       this.showEditDiff = false;
       this.selectedVersion = 'latest';
       this._updateData();
-    });
+    }).catch(e => this.errorMessage = e.message);
   }
 }
 
