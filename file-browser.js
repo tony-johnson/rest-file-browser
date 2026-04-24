@@ -42,7 +42,7 @@ export class FileBrowser extends LitElement {
   constructor() {
     super();
     this.restURL = 'rest/';
-    this.filePrefix = "/dev";
+    this.filePrefix = "";
     this.context = '';
     this.data = {};
     this.path = ".";
@@ -176,8 +176,11 @@ export class FileBrowser extends LitElement {
 
   firstUpdated(changedProperties) {
     ace.config.set('basePath', this.context + '/ace');
-    this.path = window.location.pathname.replace(this.filePrefix, '.');
-    if (this.path == "./") this.path = ".";
+    const pathname = window.location.pathname;
+    const stripped = pathname.startsWith(this.filePrefix)
+      ? '.' + pathname.slice(this.filePrefix.length)
+      : '.';
+    this.path = stripped === './' ? '.' : stripped;
     this._updateData();
     window.onpopstate = (e) => {
       this._goto(e.state == null ? "." : e.state);
@@ -489,6 +492,7 @@ export class FileVersions extends LitElement {
       newComment:{type:String,notify: true},
       editingVersion:{type:String,notify: true},
       showEditDiff:{type:Boolean,notify: true},
+      showDefaultHistory:{type:Boolean,notify: true},
     };
   };
 
@@ -505,6 +509,7 @@ export class FileVersions extends LitElement {
     this.newComment = '';
     this.editingVersion = null;
     this.showEditDiff = false;
+    this.showDefaultHistory = false;
   }
 
   render() {
@@ -513,7 +518,7 @@ export class FileVersions extends LitElement {
       <table>
         <thead>
           <tr><td colspan=3><input id="showHidden" type="checkbox" @click=${this._showHidden} ?checked=${this.showHidden} ?disabled=${!this.data.versions.some(v => v.hidden)} style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}><label for="showHidden" style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}>Show Hidden</label></td></tr>
-          <tr><th>Hidden</th><th>Default</th><th>Latest</th><th>Version</th><th>Size</th><th>Date</th><th>Download</th><th>Comment</th></tr>
+          <tr><th>Hidden</th><th>Default</th><th>Latest</th><th>Version</th><th>Size</th><th>Date</th><th>Creator</th><th>Download</th><th>Comment</th></tr>
         </thead>
         <tbody>
           ${repeat(this.data.versions, (row) => row.version, (row, index) => row.hidden && !this.showHidden ? null : html`
@@ -524,12 +529,34 @@ export class FileVersions extends LitElement {
               <td>${row.version}</td>
               <td>${dtf.humanFileSize(row.size)}</td>
               <td>${dtf.format(row.lastModified)}</td>
+              <td>${row.creator || ''}</td>
               <td>(<a href="${this.restURL + 'version/download/' + this.path + "?version=" + row.version}">download</a>)</td>
               <td><button id="b${row.version}" ?disabled=${!this.allowChanges} @click=${this._updateComment}>Update</button><input type="text" id="c${row.version}" value=${row.comment} ?disabled=${!this.allowChanges} @blur=${this._updateComment} @keydown=${e => e.key === 'Enter' && this._updateComment(e)}></td>
             </tr>
           `)}
         </tbody>
       </table>
+      ${this.data.defaultHistory && this.data.defaultHistory.length ? html`
+        <div>
+          <button @click=${() => this.showDefaultHistory = !this.showDefaultHistory}>
+            Default History ${this.showDefaultHistory ? '▲' : '▼'}
+          </button>
+          ${this.showDefaultHistory ? html`
+            <table>
+              <thead><tr><th>Date</th><th>Version</th><th>Changed By</th></tr></thead>
+              <tbody>
+                ${repeat(this.data.defaultHistory, (row) => row.timestamp, (row) => html`
+                  <tr>
+                    <td>${dtf.format(row.timestamp)}</td>
+                    <td>${row.version}</td>
+                    <td>${row.changedBy || ''}</td>
+                  </tr>
+                `)}
+              </tbody>
+            </table>
+          ` : ''}
+        </div>
+      ` : ''}
       ${this.showDiff ? html`
         <div id="diffViewer">Diff Viewer:
           <select id="diffV1" @change=${this._diffSelectionChanged} data-side="v1">
