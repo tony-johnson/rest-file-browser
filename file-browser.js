@@ -21,19 +21,108 @@ export class FileBrowser extends LitElement {
     return css`
       :host {
         display: block;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 14px;
+        color: #222;
       }
+      a { color: #1a73e8; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .user-bar {
+        font-size: 13px;
+        color: #555;
+        margin-bottom: 12px;
+      }
+      button {
+        font-family: inherit;
+        font-size: 13px;
+        padding: 4px 12px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background: #f8f8f8;
+        cursor: pointer;
+        color: #333;
+      }
+      button:hover:not(:disabled) { background: #e8e8e8; border-color: #aaa; }
+      button:disabled { opacity: 0.45; cursor: default; }
       .error-banner {
         background: #fdd;
         border: 1px solid #c00;
         color: #c00;
         padding: 6px 10px;
-        margin-bottom: 6px;
-        border-radius: 3px;
+        margin-bottom: 8px;
+        border-radius: 4px;
+        font-size: 13px;
       }
-      .error-banner button {
-        margin-left: 8px;
-        cursor: pointer;
+      .error-banner button { margin-left: 8px; }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-bottom: 10px;
       }
+      th {
+        background: #f0f2f5;
+        border-bottom: 2px solid #d0d4da;
+        padding: 6px 10px;
+        text-align: left;
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #555;
+      }
+      td {
+        padding: 5px 10px;
+        border-bottom: 1px solid #eee;
+        vertical-align: middle;
+      }
+      tr:last-child td { border-bottom: none; }
+      tbody tr:hover { background: #f5f8ff; }
+      td.size { color: #777; font-size: 12px; white-space: nowrap; }
+      td.date { color: #777; font-size: 12px; white-space: nowrap; }
+      td.name { width: 50%; }
+      td.name a { font-weight: 500; }
+      .show-hidden-row td { border-bottom: 1px solid #e0e4ea; background: #fafbfc; }
+      .toolbar {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        margin: 10px 0 6px;
+      }
+      .dialog-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.45);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .dialog-card {
+        background: white;
+        padding: 24px;
+        min-width: 640px;
+        max-width: 90vw;
+        border-radius: 8px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+      }
+      .dialog-card h3 { margin: 0 0 16px; font-size: 17px; }
+      .dialog-field { margin-bottom: 12px; }
+      .dialog-field label { font-size: 13px; color: #444; }
+      .dialog-field input[type=text] {
+        margin-left: 6px;
+        padding: 4px 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 13px;
+        width: 280px;
+      }
+      .dialog-buttons { margin-top: 12px; display: flex; gap: 6px; }
+      .btn-primary {
+        background: #1a73e8;
+        color: white;
+        border-color: #1a73e8;
+      }
+      .btn-primary:hover:not(:disabled) { background: #1558b0; border-color: #1558b0; }
     `;
   }
 
@@ -120,7 +209,7 @@ export class FileBrowser extends LitElement {
 
     return html`
       ${this.errorMessage ? html`<div class="error-banner">${this.errorMessage} <button @click=${() => this.errorMessage = ''}>✕</button></div>` : null}
-      ${this.user ? html`Hello ${this.user.displayName} <a @click=${this._logout} href="#">Logout</a>` : html`<a @click=${this._login} href="#">Login</a>`}
+      <div class="user-bar">${this.user ? html`Hello ${this.user.displayName} <a @click=${this._logout} href="#">Logout</a>` : html`<a @click=${this._login} href="#">Login</a>`}</div>
       <path-browser @path-changed=${this._pathChanged} path=${this.path}></path-browser>
       ${this.data.versionedFile ? this._renderVersionedFile(this.data) : this.data.children != null ? this._renderFolder(this.data) : this._renderFile(this.data)}
       ${this.showNewFileDialog ? this._renderNewFileDialog() : null}
@@ -177,8 +266,10 @@ export class FileBrowser extends LitElement {
         `)}
         </tbody>
       </table>
-      <button @click=${this._addFolder} ?disabled=${this.user == null}>Add Folder</button>
-      <button @click=${this._openNewFileDialog} ?disabled=${this.user == null}>Add File</button>
+      <div class="toolbar">
+        <button @click=${this._addFolder} ?disabled=${this.user == null}>Add Folder</button>
+        <button @click=${this._openNewFileDialog} ?disabled=${this.user == null}>Add File</button>
+      </div>
     `;
   }
 
@@ -307,18 +398,18 @@ export class FileBrowser extends LitElement {
 
   _renderNewFileDialog() {
     return html`
-      <div style="position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:flex;align-items:center;justify-content:center">
-        <div style="background:white;padding:1.5em;min-width:640px;max-width:90vw;border-radius:4px;box-shadow:0 4px 24px rgba(0,0,0,0.3)">
-          <h3 style="margin-top:0">New File</h3>
-          <div style="margin-bottom:0.75em">
-            <label>Name: <input type="text" .value=${this.newFileName} @input=${e => this.newFileName = e.target.value} style="width:300px"></label>
+      <div class="dialog-overlay">
+        <div class="dialog-card">
+          <h3>New File</h3>
+          <div class="dialog-field">
+            <label>Name: <input type="text" .value=${this.newFileName} @input=${e => this.newFileName = e.target.value}></label>
           </div>
-          <div style="margin-bottom:0.75em">
+          <div class="dialog-field">
             <label><input type="checkbox" ?checked=${this.newFileVersioned} @change=${e => this.newFileVersioned = e.target.checked}> Versioned</label>
           </div>
           <ace-editor id="newFileEditor" name=${this.newFileName || 'untitled'}></ace-editor>
-          <div style="margin-top:0.75em">
-            <button @click=${this._saveNewFile} ?disabled=${!this.newFileName}>Save</button>
+          <div class="dialog-buttons">
+            <button class="btn-primary" @click=${this._saveNewFile} ?disabled=${!this.newFileName}>Save</button>
             <button @click=${this._uploadToNewFileEditor}>Upload</button>
             <button @click=${this._closeNewFileDialog}>Cancel</button>
           </div>
@@ -372,7 +463,16 @@ export class PathBrowser extends LitElement {
     return css`
       :host {
         display: inline;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       }
+      h2 {
+        font-size: 15px;
+        font-weight: 600;
+        color: #333;
+        margin: 0 0 12px;
+      }
+      a { color: #1a73e8; text-decoration: none; }
+      a:hover { text-decoration: underline; }
     `;
   }
 
@@ -540,21 +640,136 @@ export class AceEditor extends LitElement {
 export class FileVersions extends LitElement {
   static get styles() {
     return css`
-        :host {
-          display: block;
-        }
-        .error-banner {
-          background: #fdd;
-          border: 1px solid #c00;
-          color: #c00;
-          padding: 6px 10px;
-          margin-bottom: 6px;
-          border-radius: 3px;
-        }
-        .error-banner button {
-          margin-left: 8px;
-          cursor: pointer;
-        }
+      :host {
+        display: block;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 14px;
+        color: #222;
+      }
+      a { color: #1a73e8; text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      button {
+        font-family: inherit;
+        font-size: 13px;
+        padding: 4px 12px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background: #f8f8f8;
+        cursor: pointer;
+        color: #333;
+      }
+      button:hover:not(:disabled) { background: #e8e8e8; border-color: #aaa; }
+      button:disabled { opacity: 0.45; cursor: default; }
+      .btn-primary {
+        background: #1a73e8;
+        color: white;
+        border-color: #1a73e8;
+      }
+      .btn-primary:hover:not(:disabled) { background: #1558b0; border-color: #1558b0; }
+      .error-banner {
+        background: #fdd;
+        border: 1px solid #c00;
+        color: #c00;
+        padding: 6px 10px;
+        margin-bottom: 8px;
+        border-radius: 4px;
+        font-size: 13px;
+      }
+      .error-banner button { margin-left: 8px; }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin-bottom: 8px;
+      }
+      th {
+        background: #f0f2f5;
+        border-bottom: 2px solid #d0d4da;
+        padding: 6px 10px;
+        text-align: left;
+        font-weight: 600;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: #555;
+      }
+      td {
+        padding: 5px 8px;
+        border-bottom: 1px solid #eee;
+        vertical-align: middle;
+        white-space: nowrap;
+      }
+      tr:last-child td { border-bottom: none; }
+      tbody tr:hover { background: #f5f8ff; }
+      td.ctrl { width: 24px; text-align: center; }
+      td.version-num { width: 40px; font-weight: 600; }
+      td.size-col { color: #777; font-size: 12px; }
+      td.date-col { color: #777; font-size: 12px; }
+      td.creator-col { max-width: 160px; overflow: hidden; text-overflow: ellipsis; color: #555; font-size: 12px; }
+      td.comment-col { white-space: normal; width: 100%; }
+      td.comment-col > div { display: flex; align-items: center; }
+      td.comment-col input[type=text] {
+        flex: 1 1 0;
+        min-width: 0;
+        padding: 3px 6px;
+        border: 1px solid #ddd;
+        border-radius: 3px;
+        font-size: 12px;
+        font-family: inherit;
+      }
+      td.comment-col input[type=text]:focus { border-color: #1a73e8; outline: none; }
+      td.comment-col button {
+        padding: 3px 8px;
+        font-size: 12px;
+        margin-right: 4px;
+      }
+      .show-hidden-row td { padding: 4px 8px; background: #fafbfc; }
+      select {
+        font-family: inherit;
+        font-size: 13px;
+        padding: 3px 6px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background: #fff;
+      }
+      .toolbar {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        margin: 8px 0;
+        flex-wrap: wrap;
+      }
+      .toolbar label { font-size: 13px; color: #444; }
+      .editing-banner {
+        margin: 8px 0;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+      .editing-banner.is-latest {
+        background: #e8f5e9;
+        border: 1px solid #a5d6a7;
+      }
+      .editing-banner.is-stale {
+        background: #fff3e0;
+        border: 1px solid #ffcc80;
+      }
+      .editing-banner input[type=text] {
+        padding: 3px 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 13px;
+        font-family: inherit;
+        width: 260px;
+      }
+      .editing-banner input[type=text]:focus { border-color: #1a73e8; outline: none; }
+      .history-panel { margin-bottom: 8px; }
+      .history-panel table { width: auto; }
+      #diffViewer { margin-top: 8px; }
+      #diffViewer .toolbar { margin-bottom: 6px; }
     `;
   }
 
@@ -605,27 +820,27 @@ export class FileVersions extends LitElement {
       ${this.errorMessage ? html`<div class="error-banner">${this.errorMessage} <button @click=${() => this.errorMessage = ''}>✕</button></div>` : null}
       <table>
         <thead>
-          <tr><td colspan=3><input id="showHidden" type="checkbox" @click=${this._showHidden} ?checked=${this.showHidden} ?disabled=${!this.data.versions.some(v => v.hidden)} style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}><label for="showHidden" style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}>Show Hidden</label></td></tr>
+          <tr class="show-hidden-row"><td colspan=9><input id="showHidden" type="checkbox" @click=${this._showHidden} ?checked=${this.showHidden} ?disabled=${!this.data.versions.some(v => v.hidden)} style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}><label for="showHidden" style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}> Show Hidden</label></td></tr>
           <tr><th>Hidden</th><th>Default</th><th>Latest</th><th>Version</th><th>Size</th><th>Date</th><th>Creator</th><th>Download</th><th>Comment</th></tr>
         </thead>
         <tbody>
           ${repeat(this.data.versions, (row) => row.version, (row, index) => row.hidden && !this.showHidden ? null : html`
             <tr>
-              <td><input type="checkbox" id="h${row.version}" @click=${this._hide} ?checked=${row.hidden} ?disabled=${row.version == this.data.latest || row.version == this.data.default || !this.allowChanges}></td>
-              <td><input type="radio" name="default" id="d${row.version}" @click=${this._makeDefault} ?checked=${row.version == this.data.default} ?disabled=${row.hidden || !this.allowChanges}></td>
-              <td><input type="radio" name="latest" id="l${row.version}" ?checked=${row.version == this.data.latest} ?disabled=${row.version != this.data.latest}></td>
-              <td>${row.version}</td>
-              <td>${dtf.humanFileSize(row.size)}</td>
-              <td>${dtf.format(row.lastModified)}</td>
-              <td>${row.creator || ''}</td>
-              <td>(<a href="${this.restURL + 'version/download/' + this.path + "?version=" + row.version}">download</a>)</td>
-              <td><button id="b${row.version}" ?disabled=${!this.allowChanges} @click=${this._updateComment}>Update</button><input type="text" id="c${row.version}" value=${row.comment} ?disabled=${!this.allowChanges} @blur=${this._updateComment} @keydown=${e => e.key === 'Enter' && this._updateComment(e)}></td>
+              <td class="ctrl"><input type="checkbox" id="h${row.version}" @click=${this._hide} ?checked=${row.hidden} ?disabled=${row.version == this.data.latest || row.version == this.data.default || !this.allowChanges}></td>
+              <td class="ctrl"><input type="radio" name="default" id="d${row.version}" @click=${this._makeDefault} ?checked=${row.version == this.data.default} ?disabled=${row.hidden || !this.allowChanges}></td>
+              <td class="ctrl"><input type="radio" name="latest" id="l${row.version}" ?checked=${row.version == this.data.latest} ?disabled=${row.version != this.data.latest}></td>
+              <td class="version-num">${row.version}</td>
+              <td class="size-col">${dtf.humanFileSize(row.size)}</td>
+              <td class="date-col">${dtf.format(row.lastModified)}</td>
+              <td class="creator-col">${row.creator || ''}</td>
+              <td><a href="${this.restURL + 'version/download/' + this.path + "?version=" + row.version}">download</a></td>
+              <td class="comment-col"><div><button id="b${row.version}" ?disabled=${!this.allowChanges} @click=${this._updateComment}>Update</button><input type="text" id="c${row.version}" value=${row.comment} ?disabled=${!this.allowChanges} @blur=${this._updateComment} @keydown=${e => e.key === 'Enter' && this._updateComment(e)}></div></td>
             </tr>
           `)}
         </tbody>
       </table>
       ${this.data.defaultHistory && this.data.defaultHistory.length ? html`
-        <div>
+        <div class="history-panel">
           <button @click=${() => this.showDefaultHistory = !this.showDefaultHistory}>
             Default History ${this.showDefaultHistory ? '▲' : '▼'}
           </button>
@@ -635,9 +850,9 @@ export class FileVersions extends LitElement {
               <tbody>
                 ${repeat(this.data.defaultHistory, (row) => row.timestamp, (row) => html`
                   <tr>
-                    <td>${dtf.format(row.timestamp)}</td>
-                    <td>${row.version}</td>
-                    <td>${row.changedBy || ''}</td>
+                    <td class="date-col">${dtf.format(row.timestamp)}</td>
+                    <td class="version-num">${row.version}</td>
+                    <td class="creator-col">${row.changedBy || ''}</td>
                   </tr>
                 `)}
               </tbody>
@@ -646,36 +861,41 @@ export class FileVersions extends LitElement {
         </div>
       ` : ''}
       ${this.showDiff ? html`
-        <div id="diffViewer">Diff Viewer:
-          <select id="diffV1" @change=${this._diffSelectionChanged} data-side="v1">
-            ${repeat(this.data.versions, (t) => t.version, (t,i) => t.hidden && !this.showHidden ? null : html`<option value=${t.version} ?selected=${this.diffVersion1==t.version}>${t.version}</option>`)}
-          </select>
-          <button type="button" class="diff-swap" @click=${this._swapDiffVersions} title="Swap diff selections">⇄</button>
-          <select id="diffV2" @change=${this._diffSelectionChanged} data-side="v2">
-            ${repeat(this.data.versions, (t) => t.version, (t,i) => t.hidden && !this.showHidden ? null : html`<option value=${t.version} ?selected=${this.diffVersion2==t.version}>${t.version}</option>`)}
-          </select>
-          <button @click=${this._closeDiff}>Close</button>
+        <div id="diffViewer">
+          <div class="toolbar">
+            Diff Viewer:
+            <select id="diffV1" @change=${this._diffSelectionChanged} data-side="v1">
+              ${repeat(this.data.versions, (t) => t.version, (t,i) => t.hidden && !this.showHidden ? null : html`<option value=${t.version} ?selected=${this.diffVersion1==t.version}>${t.version}</option>`)}
+            </select>
+            <button type="button" class="diff-swap" @click=${this._swapDiffVersions} title="Swap diff selections">⇄</button>
+            <select id="diffV2" @change=${this._diffSelectionChanged} data-side="v2">
+              ${repeat(this.data.versions, (t) => t.version, (t,i) => t.hidden && !this.showHidden ? null : html`<option value=${t.version} ?selected=${this.diffVersion2==t.version}>${t.version}</option>`)}
+            </select>
+            <button @click=${this._closeDiff}>Close</button>
+          </div>
           <ace-editor readonly name="diff.diff" fileURL="${this.restURL+"version/diff/"+this.path+"?v2="+this.diffVersion1+"&v1="+this.diffVersion2}"></ace-editor>
-      </div>` : html`
-        Version: <select id="selectedVersion" @change=${this._selectionChanged} ?disabled=${!this.readOnly}>
-          <option value="default" ?selected=${this.selectedVersion == "default"}>default</option>
-          <option value="latest" ?selected=${this.selectedVersion == "latest"}>latest</option>
-          ${repeat(this.data.versions, (row) => row.version, (row, index) => row.hidden && !this.showHidden ? null : html`
-            <option value=${row.version} ?selected=${this.selectedVersion == row.version}>${row.version}</option>
-          `)}
+        </div>` : html`
+        <div class="toolbar">
+          <label>Version:</label>
+          <select id="selectedVersion" @change=${this._selectionChanged} ?disabled=${!this.readOnly}>
+            <option value="default" ?selected=${this.selectedVersion == "default"}>default</option>
+            <option value="latest" ?selected=${this.selectedVersion == "latest"}>latest</option>
+            ${repeat(this.data.versions, (row) => row.version, (row, index) => row.hidden && !this.showHidden ? null : html`
+              <option value=${row.version} ?selected=${this.selectedVersion == row.version}>${row.version}</option>
+            `)}
           </select>
-
           ${this.allowChanges ? html`
-            <button @click=${this._edit} ?disabled=${!this.readOnly}>Edit</button>
+            <button class="btn-primary" @click=${this._edit} ?disabled=${!this.readOnly}>Edit</button>
             <button @click=${this._cancel} ?disabled=${this.readOnly}>Cancel</button>
-            <button @click=${this._save} ?disabled=${!this.fileChanged}>Save</button>` : null}
-          <button class="diff-viewer-button" @click=${this.readOnly ? this._showDiff : this._showEditDiff} ?disabled=${this.readOnly ? this.data.versions.filter((t) => !t.hidden).length < 2 : this.showEditDiff}>
-            Diff Viewer&nbsp;🆕
+            <button class="btn-primary" @click=${this._save} ?disabled=${!this.fileChanged}>Save</button>` : null}
+          <button @click=${this.readOnly ? this._showDiff : this._showEditDiff} ?disabled=${this.readOnly ? this.data.versions.filter((t) => !t.hidden).length < 2 : this.showEditDiff}>
+            Diff Viewer
           </button>
-          ${!this.readOnly ? this._renderEditingBanner() : null}
-          ${this.showEditDiff ? this._renderEditDiff() : null}
-          <ace-editor @file-changed=${this._fileChanged} ?readonly=${this.readOnly} name=${this.name} fileURL="${this.restURL + "version/download/" + this.path + "?version=" + (this.selectedVersion == "default" && this.data.default ? this.data.default : this.selectedVersion)}"></ace-editor>
-        `}
+        </div>
+        ${!this.readOnly ? this._renderEditingBanner() : null}
+        ${this.showEditDiff ? this._renderEditDiff() : null}
+        <ace-editor @file-changed=${this._fileChanged} ?readonly=${this.readOnly} name=${this.name} fileURL="${this.restURL + "version/download/" + this.path + "?version=" + (this.selectedVersion == "default" && this.data.default ? this.data.default : this.selectedVersion)}"></ace-editor>
+      `}
     `;
   }
   _renderEditingBanner() {
@@ -686,9 +906,9 @@ export class FileVersions extends LitElement {
         : this.selectedVersion;
     const isLatest = String(effectiveVersion) === String(this.data.latest);
     return html`
-      <div style="margin:0.5em 0;padding:0.4em 0.75em;border-radius:3px;background:${isLatest ? '#e8f5e9' : '#fff3e0'};border:1px solid ${isLatest ? '#a5d6a7' : '#ffcc80'}">
-        Editing version ${effectiveVersion}${isLatest ? '' : html` &mdash; <strong>warning:</strong> this is not the latest version (latest is ${this.data.latest})`}
-        &nbsp;&nbsp;Comment: <input type="text" .value=${this.newComment} @input=${e => this.newComment = e.target.value} placeholder="(none)" style="width:300px">
+      <div class="editing-banner ${isLatest ? 'is-latest' : 'is-stale'}">
+        <span>Editing version ${effectiveVersion}${isLatest ? '' : html` &mdash; <strong>warning:</strong> not the latest (latest is ${this.data.latest})`}</span>
+        <label>Comment: <input type="text" .value=${this.newComment} @input=${e => this.newComment = e.target.value} placeholder="(none)"></label>
       </div>`;
   }
 
