@@ -140,6 +140,7 @@ export class FileBrowser extends LitElement {
       serverInfo: { type: Object, notify: true },
       showHidden: { type: Boolean, notify: true },
       errorMessage: { type: String, notify: true },
+      showConfigExplorer: { type: Boolean, notify: true },
     };
   }
 
@@ -157,6 +158,7 @@ export class FileBrowser extends LitElement {
     this.serverInfo = { version: '1.0', capabilities: ['versionComments'] };
     this.showHidden = false;
     this.errorMessage = '';
+    this.showConfigExplorer = false;
 
     // Your web app's Firebase configuration
     var firebaseConfig = {
@@ -211,7 +213,9 @@ export class FileBrowser extends LitElement {
       ${this.errorMessage ? html`<div class="error-banner">${this.errorMessage} <button @click=${() => this.errorMessage = ''}>✕</button></div>` : null}
       <div class="user-bar">${this.user ? html`Hello ${this.user.displayName} <a @click=${this._logout} href="#">Logout</a>` : html`<a @click=${this._login} href="#">Login</a>`}</div>
       <path-browser @path-changed=${this._pathChanged} path=${this.path}></path-browser>
-      ${this.data.versionedFile ? this._renderVersionedFile(this.data) : this.data.children != null ? this._renderFolder(this.data) : this._renderFile(this.data)}
+      ${this.showConfigExplorer
+        ? html`<config-explorer path=${this.path} restURL=${this.restURL} @back=${() => this.showConfigExplorer = false}></config-explorer>`
+        : this.data.versionedFile ? this._renderVersionedFile(this.data) : this.data.children != null ? this._renderFolder(this.data) : this._renderFile(this.data)}
       ${this.showNewFileDialog ? this._renderNewFileDialog() : null}
       `;
   }
@@ -269,8 +273,18 @@ export class FileBrowser extends LitElement {
       <div class="toolbar">
         <button @click=${this._addFolder} ?disabled=${this.user == null}>Add Folder</button>
         <button @click=${this._openNewFileDialog} ?disabled=${this.user == null}>Add File</button>
+        ${this._isConfigDirectory(data) ? html`<button @click=${this._openConfigExplorer}>Configuration Explorer</button>` : null}
       </div>
     `;
+  }
+
+  _isConfigDirectory(data) {
+    return data.children && data.children.length > 0 &&
+      data.children.every(c => c.name.endsWith('.properties'));
+  }
+
+  _openConfigExplorer() {
+    this.showConfigExplorer = true;
   }
 
   _renderVersionedFile(data) {
@@ -349,6 +363,7 @@ export class FileBrowser extends LitElement {
   _goto(path) {
     this.data = {};
     this.path = path;
+    this.showConfigExplorer = false;
     this._updateData();
   }
 
@@ -529,7 +544,7 @@ export class AceEditor extends LitElement {
         #editor {
           border: 1px solid #e3e3e3;
           border-radius: 4px;
-          height: 400px;
+          height: 100%;
           width: 100%;
         }
     `;
@@ -1137,6 +1152,430 @@ export class FileVersions extends LitElement {
 }
 
 
+export class ConfigExplorer extends LitElement {
+  static get styles() {
+    return css`
+      :host {
+        display: block;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 14px;
+        color: #222;
+      }
+      h3 { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
+      .path-label { font-size: 13px; color: #555; margin-bottom: 16px; }
+      .entry-block {
+        border: 1px solid #e0e4ea;
+        border-radius: 6px;
+        padding: 12px;
+        margin-bottom: 12px;
+        background: #fafbfc;
+      }
+      .entry-header {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .entry-header label { font-size: 13px; color: #444; white-space: nowrap; }
+      .entry-header input[type=text] {
+        flex: 1 1 260px;
+        padding: 4px 8px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 13px;
+        font-family: monospace;
+      }
+      .entry-header input[type=text]:focus { border-color: #1a73e8; outline: none; }
+      .error-banner {
+        background: #fdd;
+        border: 1px solid #c00;
+        color: #c00;
+        padding: 6px 10px;
+        margin: 8px 0 0;
+        border-radius: 4px;
+        font-size: 13px;
+      }
+      .error-banner button { margin-left: 8px; }
+      .result-label {
+        font-size: 13px;
+        color: #444;
+        margin: 10px 0 6px;
+        font-weight: 600;
+      }
+      button {
+        font-family: inherit;
+        font-size: 13px;
+        padding: 4px 12px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        background: #f8f8f8;
+        cursor: pointer;
+        color: #333;
+      }
+      button:hover:not(:disabled) { background: #e8e8e8; border-color: #aaa; }
+      button:disabled { opacity: 0.45; cursor: default; }
+      .btn-primary { background: #1a73e8; color: white; border-color: #1a73e8; }
+      .btn-primary:hover:not(:disabled) { background: #1558b0; border-color: #1558b0; }
+      .btn-danger { color: #c00; border-color: #e8a0a0; }
+      .btn-danger:hover:not(:disabled) { background: #fdd; border-color: #c00; }
+      .toolbar { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+      .resize-handle {
+        height: 6px;
+        margin: 2px 0;
+        background: #dde2ea;
+        border-radius: 3px;
+        cursor: row-resize;
+        transition: background 0.15s;
+      }
+      .resize-handle:hover { background: #1a73e8; }
+      .pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 8px;
+      }
+      .pill {
+        padding: 2px 10px;
+        background: #e8f0fe;
+        border: 1px solid #aac4f5;
+        border-radius: 12px;
+        font-size: 12px;
+        font-family: monospace;
+        color: #1a73e8;
+        cursor: default;
+        user-select: none;
+      }
+      .pill:hover { background: #d2e3fc; border-color: #1a73e8; }
+      .pill-popup {
+        position: fixed;
+        z-index: 2000;
+        background: white;
+        border: 1px solid #d0d4da;
+        border-radius: 6px;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.18);
+        padding: 10px 12px;
+        max-width: 480px;
+        max-height: 320px;
+        overflow: auto;
+        pointer-events: none;
+      }
+      .pill-popup-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: #1a73e8;
+        margin-bottom: 8px;
+      }
+      .pill-popup pre {
+        margin: 0;
+        font-family: monospace;
+        font-size: 12px;
+        white-space: pre;
+        color: #222;
+      }
+      .pill-popup-info { font-size: 12px; color: #777; }
+    `;
+  }
+
+  static get properties() {
+    return {
+      path: { type: String, notify: true },
+      restURL: { type: String, notify: true },
+      entries: { type: Array, notify: true },
+      _popupData: { type: Object },
+    };
+  }
+
+  constructor() {
+    super();
+    this.path = '.';
+    this.restURL = '';
+    this._nextId = 0;
+    this.entries = [this._newEntry()];
+    this._popupData = null;
+    this._popupTimeout = null;
+  }
+
+  _newEntry() {
+    return { id: this._nextId++, configString: '', mergedContent: null, loading: false, errorMessage: '', collapsed: false, editorHeight: 400 };
+  }
+
+  _updateEntry(id, changes) {
+    this.entries = this.entries.map(e => e.id === id ? { ...e, ...changes } : e);
+  }
+
+  render() {
+    return html`
+      <h3>Configuration Explorer</h3>
+      <div class="path-label">Path: ${this.path}</div>
+      ${repeat(this.entries, e => e.id, (e, i) => this._renderEntry(e, i))}
+      <div class="toolbar">
+        <button @click=${this._addEntry}>Add Configuration</button>
+        <button @click=${this._back}>Back</button>
+      </div>
+      ${this._popupData ? html`
+        <div class="pill-popup" style="left:${this._popupData.x}px;top:${this._popupData.y}px">
+          <div class="pill-popup-title">${this._popupData.name}.properties ${this._vLabel(this._popupData.version)}</div>
+          ${this._popupData.loading
+            ? html`<div class="pill-popup-info">Loading...</div>`
+            : this._popupData.error
+              ? html`<div class="pill-popup-info" style="color:#c00">${this._popupData.error}</div>`
+              : html`<pre>${this._popupData.content}</pre>`}
+        </div>
+      ` : null}
+    `;
+  }
+
+  _renderEntry(entry, index) {
+    const nextEntry = this.entries[index + 1];
+    const hasVisible = entry.mergedContent != null && !entry.collapsed;
+    const showMiddleHandle = hasVisible && nextEntry && nextEntry.mergedContent != null && !nextEntry.collapsed;
+    const showBottomHandle = hasVisible && !nextEntry;
+    return html`
+      <div class="entry-block">
+        <div class="entry-header">
+          <label>Configuration String:</label>
+          <input type="text" .value=${entry.configString}
+            @input=${e => this._updateEntry(entry.id, { configString: e.target.value })}
+            @keydown=${e => e.key === 'Enter' && this._loadEntry(entry.id)}
+            placeholder="e.g. ats(3)|ats-base(d)|other(l)">
+          <button class="btn-primary" @click=${() => this._loadEntry(entry.id)}
+            ?disabled=${entry.loading || !entry.configString}>
+            ${entry.loading ? 'Loading...' : 'Load'}
+          </button>
+          ${entry.mergedContent != null ? html`
+            <button @click=${() => this._updateEntry(entry.id, { collapsed: !entry.collapsed })}>
+              ${entry.collapsed ? '▶ Show' : '▼ Hide'}
+            </button>
+          ` : null}
+          ${this.entries.length > 1 ? html`
+            <button class="btn-danger" @click=${() => this._removeEntry(entry.id)}>Remove</button>
+          ` : null}
+        </div>
+        ${this._parsedParts(entry.configString).length ? html`
+          <div class="pills">
+            ${this._parsedParts(entry.configString).map(({ name, version }) => html`
+              <span class="pill"
+                @mouseenter=${e => this._showPillPopup(e, entry.id, name, version)}
+                @mouseleave=${() => this._hidePillPopup()}>
+                ${name}${version !== 'default' ? `(${version})` : ''}
+              </span>
+            `)}
+          </div>
+        ` : null}
+        ${entry.errorMessage ? html`
+          <div class="error-banner">${entry.errorMessage}
+            <button @click=${() => this._updateEntry(entry.id, { errorMessage: '' })}>✕</button>
+          </div>
+        ` : null}
+        ${entry.mergedContent != null ? html`
+          <div style="display:${entry.collapsed ? 'none' : 'block'}">
+            <div class="result-label">Merged Configuration:</div>
+            <ace-editor id="editor-${entry.id}" readonly name="merged.properties"
+              style="height:${entry.editorHeight}px"></ace-editor>
+          </div>
+        ` : null}
+      </div>
+      ${showMiddleHandle ? html`
+        <div class="resize-handle"
+          @mousedown=${e => this._startResize(e, entry.id, nextEntry.id)}></div>
+      ` : showBottomHandle ? html`
+        <div class="resize-handle"
+          @mousedown=${e => this._startResizeBottom(e, entry.id)}></div>
+      ` : null}
+    `;
+  }
+
+  _vLabel(v) {
+    return v === 'default' || v === 'd' ? '(default)' : v === 'l' ? '(latest)' : `(v${v})`;
+  }
+
+  _parsedParts(configString) {
+    if (!configString) return [];
+    try { return this._parseConfigString(configString); }
+    catch { return []; }
+  }
+
+  _showPillPopup(e, entryId, name, version) {
+    clearTimeout(this._popupTimeout);
+    const rect = e.target.getBoundingClientRect();
+    this._popupTimeout = setTimeout(async () => {
+      const key = `${entryId}:${name}:${version}`;
+      this._popupData = { key, name, version, loading: true, content: null, error: null, x: rect.left, y: rect.bottom + 6 };
+      try {
+        const url = this.restURL + 'version/download/' + this.path + '/' + name + '.properties?version=' + version;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const text = await response.text();
+        if (this._popupData?.key === key) {
+          this._popupData = { ...this._popupData, loading: false, content: text };
+        }
+      } catch (err) {
+        if (this._popupData?.key === key) {
+          this._popupData = { ...this._popupData, loading: false, error: err.message };
+        }
+      }
+    }, 200);
+  }
+
+  _hidePillPopup() {
+    clearTimeout(this._popupTimeout);
+    this._popupData = null;
+  }
+
+  _startResizeBottom(e, id) {
+    e.preventDefault();
+    const startY = e.clientY;
+    const el = this.shadowRoot.querySelector(`#editor-${id}`);
+    if (!el) return;
+    const startH = el.offsetHeight;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    const onMove = ev => {
+      const newH = Math.max(80, startH + (ev.clientY - startY));
+      el.style.height = newH + 'px';
+      if (el.editor) el.editor.resize();
+    };
+    const onUp = ev => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      this._updateEntry(id, { editorHeight: Math.max(80, startH + (ev.clientY - startY)) });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  _startResize(e, topId, botId) {
+    e.preventDefault();
+    const startY = e.clientY;
+    const topEl = this.shadowRoot.querySelector(`#editor-${topId}`);
+    const botEl = this.shadowRoot.querySelector(`#editor-${botId}`);
+    if (!topEl || !botEl) return;
+    const topStartH = topEl.offsetHeight;
+    const botStartH = botEl.offsetHeight;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    const onMove = ev => {
+      const delta = ev.clientY - startY;
+      const newTopH = Math.max(80, topStartH + delta);
+      const newBotH = Math.max(80, botStartH - delta);
+      topEl.style.height = newTopH + 'px';
+      botEl.style.height = newBotH + 'px';
+      if (topEl.editor) topEl.editor.resize();
+      if (botEl.editor) botEl.editor.resize();
+    };
+    const onUp = ev => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      const delta = ev.clientY - startY;
+      this._updateEntry(topId, { editorHeight: Math.max(80, topStartH + delta) });
+      this._updateEntry(botId, { editorHeight: Math.max(80, botStartH - delta) });
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
+
+  _addEntry() {
+    this.entries = [...this.entries, this._newEntry()];
+  }
+
+  _removeEntry(id) {
+    this.entries = this.entries.filter(e => e.id !== id);
+  }
+
+  _parseConfigString(str) {
+    return str.split('|').map(part => {
+      const m = part.trim().match(/^([^(]+?)(?:\((\d+|[dl])\))?$/);
+      if (!m) throw new Error(`Invalid config entry: "${part.trim()}"`);
+      return { name: m[1].trim(), version: m[2] || 'default' };
+    });
+  }
+
+  _parseProperties(text) {
+    const result = {};
+    for (const rawLine of text.split('\n')) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#') || line.startsWith('!')) continue;
+      const eqIdx = line.indexOf('=');
+      const colonIdx = line.indexOf(':');
+      let sep = -1;
+      if (eqIdx >= 0 && colonIdx >= 0) sep = Math.min(eqIdx, colonIdx);
+      else if (eqIdx >= 0) sep = eqIdx;
+      else if (colonIdx >= 0) sep = colonIdx;
+      if (sep < 0) continue;
+      const key = line.slice(0, sep).trimEnd();
+      const value = line.slice(sep + 1).trimStart();
+      if (key) result[key] = value;
+    }
+    return result;
+  }
+
+  _formatProperties(merged, sources, overrides) {
+    const vLabel = v => v === 'default' || v === 'd' ? '(default)' : v === 'l' ? '(latest)' : `(v${v})`;
+    const pairs = Object.entries(merged).sort(([a], [b]) => a.localeCompare(b));
+    const kvStrings = pairs.map(([k, v]) => `${k}=${v}`);
+    const maxLen = kvStrings.reduce((m, s) => Math.max(m, s.length), 0);
+    return pairs.map(([k], i) => {
+      const src = sources[k];
+      let comment = `# ${src.file} ${vLabel(src.version)}`;
+      const prev = overrides[k];
+      if (prev && prev.length > 0) {
+        comment += `, overrides ${prev.map(s => `${s.file} ${vLabel(s.version)}`).join(', ')}`;
+      }
+      return kvStrings[i].padEnd(maxLen) + '   ' + comment;
+    }).join('\n');
+  }
+
+  async _loadEntry(id) {
+    const entry = this.entries.find(e => e.id === id);
+    if (!entry || !entry.configString || entry.loading) return;
+    this._updateEntry(id, { errorMessage: '', loading: true, mergedContent: null, collapsed: false });
+    const merged = {};
+    const sources = {};
+    const overrides = {};
+    let content = null;
+    try {
+      const entries = this._parseConfigString(entry.configString);
+      for (const { name, version } of entries) {
+        const filePath = this.path + '/' + name + '.properties';
+        const url = this.restURL + 'version/download/' + filePath + '?version=' + version;
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`Failed to load ${name}.properties (${response.status})`);
+        const text = await response.text();
+        for (const [key, value] of Object.entries(this._parseProperties(text))) {
+          if (key in merged) {
+            if (!overrides[key]) overrides[key] = [];
+            overrides[key].push(sources[key]);
+          }
+          merged[key] = value;
+          sources[key] = { file: name + '.properties', version };
+        }
+      }
+      content = this._formatProperties(merged, sources, overrides);
+    } catch (e) {
+      this._updateEntry(id, { errorMessage: e.message, loading: false });
+      return;
+    }
+    this._updateEntry(id, { mergedContent: content, loading: false });
+    await this.updateComplete;
+    const editor = this.shadowRoot.querySelector(`#editor-${id}`);
+    if (editor) {
+      await editor.updateComplete;
+      if (editor.editor) {
+        editor.editor.setValue(content, -1);
+        editor.editor.session.getUndoManager().reset();
+      }
+    }
+  }
+
+  _back() {
+    this.dispatchEvent(new CustomEvent('back'));
+  }
+}
+
 class FileDateSizeFormatter {
 
   constructor() {
@@ -1188,3 +1627,4 @@ window.customElements.define('file-browser', FileBrowser);
 window.customElements.define('path-browser', PathBrowser);
 window.customElements.define('ace-editor', AceEditor);
 window.customElements.define('file-versions', FileVersions);
+window.customElements.define('config-explorer', ConfigExplorer);
