@@ -1246,6 +1246,8 @@ export class ConfigExplorer extends LitElement {
         user-select: none;
       }
       .pill:hover { background: #d2e3fc; border-color: #1a73e8; }
+      .pill-modified { background: #fff3e0; border-color: #ffb74d; color: #e65100; }
+      .pill-modified:hover { background: #ffe0b2; border-color: #e65100; }
       .pill-popup {
         position: fixed;
         z-index: 2000;
@@ -1273,6 +1275,97 @@ export class ConfigExplorer extends LitElement {
         color: #222;
       }
       .pill-popup-info { font-size: 12px; color: #777; }
+      .analysis-section {
+        border: 1px solid #c8e6c9;
+        border-radius: 6px;
+        padding: 14px;
+        margin-top: 12px;
+        background: #f1f8f1;
+      }
+      .analysis-section h4 {
+        margin: 0 0 10px;
+        font-size: 14px;
+        font-weight: 600;
+        color: #2e7d32;
+      }
+      .analysis-group { margin-bottom: 12px; }
+      .analysis-group:last-child { margin-bottom: 0; }
+      .analysis-target {
+        font-size: 13px;
+        font-weight: 600;
+        color: #1a73e8;
+        margin-bottom: 4px;
+      }
+      .analysis-item {
+        font-size: 12px;
+        padding: 3px 0 3px 12px;
+        border-left: 2px solid #a5d6a7;
+      }
+      .analysis-item code {
+        font-family: monospace;
+        background: #e8f5e9;
+        padding: 1px 4px;
+        border-radius: 3px;
+      }
+      .analysis-item .from-list { color: #666; margin-left: 6px; }
+      .pill-popup .diff-add { color: #2e7d32; }
+      .pill-popup .diff-remove { color: #c62828; }
+      .save-dialog-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.45);
+        z-index: 3000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .save-dialog {
+        background: white;
+        padding: 20px 24px;
+        min-width: 420px;
+        border-radius: 8px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+      }
+      .save-dialog h4 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+      .save-dialog label { font-size: 13px; color: #444; }
+      .save-dialog input[type=text] {
+        display: block;
+        width: 100%;
+        margin-top: 6px;
+        padding: 6px 10px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 13px;
+        box-sizing: border-box;
+      }
+      .save-dialog input[type=text]:focus { border-color: #1a73e8; outline: none; }
+      .save-dialog-buttons { margin-top: 14px; display: flex; gap: 6px; }
+      .recent-section { position: relative; display: inline-block; }
+      .recent-menu {
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        background: white;
+        border: 1px solid #d0d4da;
+        border-radius: 6px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        min-width: 320px;
+        max-height: 260px;
+        overflow-y: auto;
+        z-index: 1000;
+        margin-bottom: 4px;
+      }
+      .recent-item {
+        padding: 8px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid #eee;
+        font-size: 12px;
+        font-family: monospace;
+      }
+      .recent-item:last-child { border-bottom: none; }
+      .recent-item:hover { background: #f0f5ff; }
+      .recent-item-summary { color: #333; }
+      .recent-item-count { color: #888; font-family: sans-serif; font-size: 11px; margin-left: 6px; }
     `;
   }
 
@@ -1282,6 +1375,12 @@ export class ConfigExplorer extends LitElement {
       restURL: { type: String, notify: true },
       entries: { type: Array, notify: true },
       _popupData: { type: Object },
+      analysisResults: { type: Array },
+      analysisLoading: { type: Boolean },
+      _modifiedFiles: { type: Object },
+      _showRecentMenu: { type: Boolean },
+      _showSaveDialog: { type: Boolean },
+      _saveComment: { type: String },
     };
   }
 
@@ -1293,6 +1392,13 @@ export class ConfigExplorer extends LitElement {
     this.entries = [this._newEntry()];
     this._popupData = null;
     this._popupTimeout = null;
+    this.analysisResults = null;
+    this.analysisLoading = false;
+    this._modifiedFiles = null;
+    this._rawFileTexts = null;
+    this._showRecentMenu = false;
+    this._showSaveDialog = false;
+    this._saveComment = 'Simplified properties via Configuration Explorer';
   }
 
   _newEntry() {
@@ -1310,16 +1416,57 @@ export class ConfigExplorer extends LitElement {
       ${repeat(this.entries, e => e.id, (e, i) => this._renderEntry(e, i))}
       <div class="toolbar">
         <button @click=${this._addEntry}>Add Configuration</button>
+        <button @click=${this._analyze}
+          ?disabled=${this.analysisLoading || this.entries.filter(e => this._parsedParts(e.configString).length).length < 2}>
+          ${this.analysisLoading ? 'Analyzing...' : 'Analyze'}
+        </button>
+        <span class="recent-section">
+          <button @click=${() => this._showRecentMenu = !this._showRecentMenu}
+            ?disabled=${!this._getRecentSessions().length}>Recent</button>
+          ${this._showRecentMenu ? html`
+            <div class="recent-menu">
+              ${this._getRecentSessions().map((session, i) => html`
+                <div class="recent-item" @click=${() => this._restoreSession(session)}>
+                  <span class="recent-item-summary">${session.configStrings[0]}</span>
+                  ${session.configStrings.length > 1 ? html`<span class="recent-item-count">+ ${session.configStrings.length - 1} more</span>` : null}
+                </div>
+              `)}
+            </div>
+          ` : null}
+        </span>
         <button @click=${this._back}>Back</button>
       </div>
+      ${this.analysisResults ? this._renderAnalysis() : null}
       ${this._popupData ? html`
         <div class="pill-popup" style="left:${this._popupData.x}px;top:${this._popupData.y}px">
-          <div class="pill-popup-title">${this._popupData.name}.properties ${this._vLabel(this._popupData.version)}</div>
+          <div class="pill-popup-title">${this._popupData.name}.properties ${this._vLabel(this._popupData.version)}${this._popupData.isDiff ? ' (modified)' : ''}</div>
           ${this._popupData.loading
             ? html`<div class="pill-popup-info">Loading...</div>`
             : this._popupData.error
               ? html`<div class="pill-popup-info" style="color:#c00">${this._popupData.error}</div>`
-              : html`<pre>${this._popupData.content}</pre>`}
+              : this._popupData.isDiff
+                ? html`<pre>${this._popupData.diffLines.map(l =>
+                    l.startsWith('+') ? html`<span class="diff-add">${l}\n</span>`
+                    : l.startsWith('-') ? html`<span class="diff-remove">${l}\n</span>`
+                    : html`${l}\n`
+                  )}</pre>`
+                : html`<pre>${this._popupData.content}</pre>`}
+        </div>
+      ` : null}
+      ${this._showSaveDialog ? html`
+        <div class="save-dialog-overlay">
+          <div class="save-dialog">
+            <h4>Save Changes</h4>
+            <label>Comment:
+              <input type="text" .value=${this._saveComment}
+                @input=${e => this._saveComment = e.target.value}
+                @keydown=${e => e.key === 'Enter' && this._saveModifiedFiles()}>
+            </label>
+            <div class="save-dialog-buttons">
+              <button class="btn-primary" @click=${this._saveModifiedFiles}>Save</button>
+              <button @click=${() => this._showSaveDialog = false}>Cancel</button>
+            </div>
+          </div>
         </div>
       ` : null}
     `;
@@ -1354,7 +1501,7 @@ export class ConfigExplorer extends LitElement {
         ${this._parsedParts(entry.configString).length ? html`
           <div class="pills">
             ${this._parsedParts(entry.configString).map(({ name, version }) => html`
-              <span class="pill"
+              <span class="pill ${this._modifiedFiles && this._modifiedFiles[name] ? 'pill-modified' : ''}"
                 @mouseenter=${e => this._showPillPopup(e, entry.id, name, version)}
                 @mouseleave=${() => this._hidePillPopup()}>
                 ${name}${version !== 'default' ? `(${version})` : ''}
@@ -1386,7 +1533,13 @@ export class ConfigExplorer extends LitElement {
   }
 
   _vLabel(v) {
-    return v === 'default' || v === 'd' ? '(default)' : v === 'l' ? '(latest)' : `(v${v})`;
+    return v === 'default' || v === 'd' ? '(default)' : v === 'l' || v === 'latest' ? '(latest)' : `(v${v})`;
+  }
+
+  _resolveVersion(v) {
+    if (v === 'd') return 'default';
+    if (v === 'l') return 'latest';
+    return v;
   }
 
   _parsedParts(configString) {
@@ -1400,9 +1553,14 @@ export class ConfigExplorer extends LitElement {
     const rect = e.target.getBoundingClientRect();
     this._popupTimeout = setTimeout(async () => {
       const key = `${entryId}:${name}:${version}`;
-      this._popupData = { key, name, version, loading: true, content: null, error: null, x: rect.left, y: rect.bottom + 6 };
+      if (this._modifiedFiles && this._modifiedFiles[name]) {
+        const diffLines = this._getFileDiff(name);
+        this._popupData = { key, name, version, loading: false, content: null, error: null, isDiff: true, diffLines, x: rect.left, y: rect.bottom + 6 };
+        return;
+      }
+      this._popupData = { key, name, version, loading: true, content: null, error: null, isDiff: false, x: rect.left, y: rect.bottom + 6 };
       try {
-        const url = this.restURL + 'version/download/' + this.path + '/' + name + '.properties?version=' + version;
+        const url = this.restURL + 'version/download/' + this.path + '/' + name + '.properties?version=' + this._resolveVersion(version);
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const text = await response.text();
@@ -1514,7 +1672,7 @@ export class ConfigExplorer extends LitElement {
   }
 
   _formatProperties(merged, sources, overrides) {
-    const vLabel = v => v === 'default' || v === 'd' ? '(default)' : v === 'l' ? '(latest)' : `(v${v})`;
+    const vLabel = v => v === 'unsaved' ? '(unsaved)' : v === 'default' || v === 'd' ? '(default)' : v === 'l' ? '(latest)' : `(v${v})`;
     const pairs = Object.entries(merged).sort(([a], [b]) => a.localeCompare(b));
     const kvStrings = pairs.map(([k, v]) => `${k}=${v}`);
     const maxLen = kvStrings.reduce((m, s) => Math.max(m, s.length), 0);
@@ -1540,18 +1698,15 @@ export class ConfigExplorer extends LitElement {
     try {
       const entries = this._parseConfigString(entry.configString);
       for (const { name, version } of entries) {
-        const filePath = this.path + '/' + name + '.properties';
-        const url = this.restURL + 'version/download/' + filePath + '?version=' + version;
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`Failed to load ${name}.properties (${response.status})`);
-        const text = await response.text();
+        const text = await this._getFileText(name, version);
+        const effectiveVersion = (this._modifiedFiles && this._modifiedFiles[name]) ? 'unsaved' : version;
         for (const [key, value] of Object.entries(this._parseProperties(text))) {
           if (key in merged) {
             if (!overrides[key]) overrides[key] = [];
             overrides[key].push(sources[key]);
           }
           merged[key] = value;
-          sources[key] = { file: name + '.properties', version };
+          sources[key] = { file: name + '.properties', version: effectiveVersion };
         }
       }
       content = this._formatProperties(merged, sources, overrides);
@@ -1560,6 +1715,7 @@ export class ConfigExplorer extends LitElement {
       return;
     }
     this._updateEntry(id, { mergedContent: content, loading: false });
+    this._saveSession();
     await this.updateComplete;
     const editor = this.shadowRoot.querySelector(`#editor-${id}`);
     if (editor) {
@@ -1567,6 +1723,292 @@ export class ConfigExplorer extends LitElement {
       if (editor.editor) {
         editor.editor.setValue(content, -1);
         editor.editor.session.getUndoManager().reset();
+      }
+    }
+  }
+
+  _renderAnalysis() {
+    const grouped = {};
+    for (const s of this.analysisResults) {
+      if (!grouped[s.promoteTo]) grouped[s.promoteTo] = [];
+      grouped[s.promoteTo].push(s);
+    }
+    return html`
+      <div class="analysis-section">
+        <h4>Promotion Opportunities
+          ${this.analysisResults.length > 0 && !this._modifiedFiles ? html`
+            <button style="margin-left:10px;font-size:12px" class="btn-primary" @click=${this._applyAnalysis}>Apply (in memory)</button>
+          ` : null}
+          ${this._modifiedFiles && Object.keys(this._modifiedFiles).length ? html`
+            <button style="margin-left:10px;font-size:12px" class="btn-primary" @click=${this._openSaveDialog}>Save Changes</button>
+          ` : null}
+          <button style="margin-left:10px;font-size:12px" @click=${this._closeAnalysis}>Close</button>
+        </h4>
+        ${this.analysisResults.length === 0
+          ? html`<div style="font-size:13px;color:#555">No promotion opportunities found.</div>`
+          : Object.entries(grouped).map(([target, items]) => html`
+            <div class="analysis-group">
+              <div class="analysis-target">Promote to ${target}.properties:</div>
+              ${items.map(item => html`
+                <div class="analysis-item">
+                  <code>${item.property}=${item.value}</code>
+                  <span class="from-list">(currently in ${item.from.map(f => f + '.properties').join(', ')})</span>
+                </div>
+              `)}
+            </div>
+          `)}
+      </div>
+    `;
+  }
+
+  async _analyze() {
+    this.analysisLoading = true;
+    this.analysisResults = null;
+    this._modifiedFiles = null;
+    try {
+      const chains = this.entries
+        .map(e => this._parsedParts(e.configString))
+        .filter(parts => parts.length > 0);
+      if (chains.length < 2) return;
+      const tree = this._buildTree(chains);
+      const uniqueFiles = new Map();
+      for (const chain of chains) {
+        for (const { name, version } of chain) {
+          if (!uniqueFiles.has(name)) uniqueFiles.set(name, version);
+        }
+      }
+      this._rawFileTexts = {};
+      const rawPropsMap = {};
+      await Promise.all([...uniqueFiles.entries()].map(async ([name, version]) => {
+        const url = this.restURL + 'version/download/' + this.path + '/' + name + '.properties?version=' + this._resolveVersion(version);
+        try {
+          const response = await fetch(url);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const text = await response.text();
+          this._rawFileTexts[name] = text;
+          rawPropsMap[name] = this._parseProperties(text);
+        } catch {
+          this._rawFileTexts[name] = '';
+          rawPropsMap[name] = {};
+        }
+      }));
+      const { suggestions } = this._analyzeNode(tree, rawPropsMap);
+      this.analysisResults = suggestions;
+    } catch (e) {
+      this.analysisResults = [];
+    } finally {
+      this.analysisLoading = false;
+    }
+  }
+
+  _buildTree(chains) {
+    const root = { name: null, version: null, children: {} };
+    for (const chain of chains) {
+      let node = root;
+      for (const { name, version } of chain) {
+        if (!node.children[name]) {
+          node.children[name] = { name, version, children: {} };
+        }
+        node = node.children[name];
+      }
+    }
+    return root;
+  }
+
+  _analyzeNode(node, rawPropsMap) {
+    const childNames = Object.keys(node.children);
+    if (childNames.length === 0) {
+      const raw = rawPropsMap[node.name] || {};
+      const effective = {};
+      for (const [key, value] of Object.entries(raw)) {
+        effective[key] = { value, sources: [node.name] };
+      }
+      return { effective, suggestions: [] };
+    }
+    const childEffectives = {};
+    const allSuggestions = [];
+    for (const childName of childNames) {
+      const result = this._analyzeNode(node.children[childName], rawPropsMap);
+      childEffectives[childName] = result.effective;
+      allSuggestions.push(...result.suggestions);
+    }
+    const allKeys = new Set();
+    for (const eff of Object.values(childEffectives)) {
+      for (const key of Object.keys(eff)) allKeys.add(key);
+    }
+    const promotable = {};
+    for (const key of allKeys) {
+      const entries = [];
+      for (const cn of childNames) {
+        if (childEffectives[cn][key]) entries.push(childEffectives[cn][key]);
+      }
+      if (entries.length === childNames.length && entries.every(e => e.value === entries[0].value)) {
+        promotable[key] = { value: entries[0].value, sources: entries.flatMap(e => e.sources) };
+      }
+    }
+    const nodeRaw = node.name ? (rawPropsMap[node.name] || {}) : {};
+    for (const [key, { value, sources }] of Object.entries(promotable)) {
+      if (nodeRaw[key] !== value && node.name) {
+        allSuggestions.push({
+          property: key,
+          value,
+          promoteTo: node.name,
+          from: childNames
+        });
+      }
+    }
+    const effective = {};
+    for (const [key, data] of Object.entries(promotable)) {
+      effective[key] = data;
+    }
+    if (node.name) {
+      for (const [key, value] of Object.entries(nodeRaw)) {
+        effective[key] = { value, sources: [node.name] };
+      }
+    }
+    return { effective, suggestions: allSuggestions };
+  }
+
+  _getStorageKey() {
+    return `config-explorer:${this.path}`;
+  }
+
+  _getRecentSessions() {
+    try {
+      return JSON.parse(localStorage.getItem(this._getStorageKey()) || '[]');
+    } catch { return []; }
+  }
+
+  _saveSession() {
+    const validEntries = this.entries.filter(e => e.configString.trim());
+    if (!validEntries.length) return;
+    const configStrings = validEntries.map(e => e.configString);
+    const editorHeights = validEntries.map(e => e.editorHeight);
+    const sessions = this._getRecentSessions();
+    const key = configStrings.join('\n');
+    const filtered = sessions.filter(s => s.configStrings.join('\n') !== key);
+    filtered.unshift({ configStrings, editorHeights });
+    const trimmed = filtered.slice(0, 10);
+    try { localStorage.setItem(this._getStorageKey(), JSON.stringify(trimmed)); } catch {}
+  }
+
+  _restoreSession(session) {
+    this._showRecentMenu = false;
+    this._nextId = 0;
+    this.entries = session.configStrings.map((cs, i) => ({
+      ...this._newEntry(),
+      configString: cs,
+      editorHeight: session.editorHeights ? session.editorHeights[i] : 400
+    }));
+    this._loadAllEntries();
+  }
+
+  async _loadAllEntries() {
+    for (const entry of this.entries) {
+      if (entry.configString) {
+        await this._loadEntry(entry.id);
+      }
+    }
+  }
+
+  _closeAnalysis() {
+    this.analysisResults = null;
+    this._modifiedFiles = null;
+    this._rawFileTexts = null;
+    this._reloadAllEntries();
+  }
+
+  _propsToText(propsMap) {
+    return Object.entries(propsMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}=${v}`)
+      .join('\n');
+  }
+
+  _getFileDiff(name) {
+    const mod = this._modifiedFiles[name];
+    if (!mod) return [];
+    const origProps = this._parseProperties(mod.originalText);
+    const modProps = this._parseProperties(mod.modifiedText);
+    const allKeys = [...new Set([...Object.keys(origProps), ...Object.keys(modProps)])].sort();
+    const lines = [];
+    for (const key of allKeys) {
+      const ov = origProps[key], mv = modProps[key];
+      if (ov && !mv) lines.push(`- ${key}=${ov}`);
+      else if (!ov && mv) lines.push(`+ ${key}=${mv}`);
+      else if (ov !== mv) { lines.push(`- ${key}=${ov}`); lines.push(`+ ${key}=${mv}`); }
+    }
+    return lines;
+  }
+
+  async _getFileText(name, version) {
+    if (this._modifiedFiles && this._modifiedFiles[name]) {
+      return this._modifiedFiles[name].modifiedText;
+    }
+    const url = this.restURL + 'version/download/' + this.path + '/' + name + '.properties?version=' + this._resolveVersion(version);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Failed to load ${name}.properties (${response.status})`);
+    return response.text();
+  }
+
+  _applyAnalysis() {
+    const workingProps = {};
+    for (const [name, text] of Object.entries(this._rawFileTexts)) {
+      workingProps[name] = { ...this._parseProperties(text) };
+    }
+    for (const { property, value, promoteTo, from } of this.analysisResults) {
+      if (!workingProps[promoteTo]) workingProps[promoteTo] = {};
+      workingProps[promoteTo][property] = value;
+      for (const source of from) {
+        if (workingProps[source]) delete workingProps[source][property];
+      }
+    }
+    this._modifiedFiles = {};
+    for (const [name, text] of Object.entries(this._rawFileTexts)) {
+      const originalProps = this._parseProperties(text);
+      const origNorm = this._propsToText(originalProps);
+      const modNorm = this._propsToText(workingProps[name]);
+      if (origNorm !== modNorm) {
+        this._modifiedFiles[name] = { originalText: text, modifiedText: modNorm };
+      }
+    }
+    this._reloadAllEntries();
+  }
+
+  _openSaveDialog() {
+    this._saveComment = 'Simplified properties via Configuration Explorer';
+    this._showSaveDialog = true;
+  }
+
+  async _saveModifiedFiles() {
+    this._showSaveDialog = false;
+    const names = Object.keys(this._modifiedFiles);
+    const errors = [];
+    for (const name of names) {
+      const content = this._modifiedFiles[name].modifiedText;
+      const url = this.restURL + 'version/upload/' + this.path + '/' + name + '.properties?comment=' + encodeURIComponent(this._saveComment);
+      const headers = { 'Content-type': 'application/octet-stream' };
+      if (jwt) headers['Authorization'] = 'Bearer ' + jwt;
+      try {
+        const response = await fetch(url, { method: 'POST', body: content, headers });
+        if (!response.ok) errors.push(`${name}.properties: HTTP ${response.status}`);
+      } catch (e) {
+        errors.push(`${name}.properties: ${e.message}`);
+      }
+    }
+    if (errors.length) {
+      alert('Some files failed to save:\n' + errors.join('\n'));
+    }
+    this._modifiedFiles = null;
+    this._rawFileTexts = null;
+    this.analysisResults = null;
+    this._reloadAllEntries();
+  }
+
+  async _reloadAllEntries() {
+    for (const entry of this.entries) {
+      if (entry.configString && entry.mergedContent != null) {
+        await this._loadEntry(entry.id);
       }
     }
   }
