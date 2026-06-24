@@ -77,8 +77,8 @@ export class FileBrowser extends LitElement {
       }
       tr:last-child td { border-bottom: none; }
       tbody tr:hover { background: #f5f8ff; }
-      td.size { color: #777; font-size: 12px; white-space: nowrap; }
-      td.date { color: #777; font-size: 12px; white-space: nowrap; }
+      td.size { color: #555; font-size: 12px; white-space: nowrap; }
+      td.date { color: #555; font-size: 12px; white-space: nowrap; }
       td.name { width: 50%; }
       td.name a { font-weight: 500; }
       .show-hidden-row td { border-bottom: 1px solid #e0e4ea; background: #fafbfc; }
@@ -702,8 +702,8 @@ export class FileVersions extends LitElement {
       tbody tr:hover { background: #f5f8ff; }
       td.ctrl { width: 24px; text-align: center; }
       td.version-num { width: 40px; font-weight: 600; }
-      td.size-col { color: #777; font-size: 12px; }
-      td.date-col { color: #777; font-size: 12px; }
+      td.size-col { color: #555; font-size: 12px; }
+      td.date-col { color: #555; font-size: 12px; }
       td.creator-col { max-width: 160px; overflow: hidden; text-overflow: ellipsis; color: #555; font-size: 12px; }
       td.comment-col { white-space: normal; width: 100%; }
       td.comment-col > div { display: flex; align-items: center; }
@@ -816,11 +816,15 @@ export class FileVersions extends LitElement {
 
   render() {
     let dtf = new FileDateSizeFormatter();
+    if (this.data.sensitive && !this.allowChanges) {
+      return html`<p>Login to see this file</p>`;
+    }
+    const canSetSensitive = this.serverInfo.capabilities.includes('sensitive');
     return html`
       ${this.errorMessage ? html`<div class="error-banner">${this.errorMessage} <button @click=${() => this.errorMessage = ''}>✕</button></div>` : null}
       <table>
         <thead>
-          <tr class="show-hidden-row"><td colspan=9><input id="showHidden" type="checkbox" @click=${this._showHidden} ?checked=${this.showHidden} ?disabled=${!this.data.versions.some(v => v.hidden)} style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}><label for="showHidden" style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}> Show Hidden</label></td></tr>
+          <tr class="show-hidden-row"><td colspan=9><input id="showHidden" type="checkbox" @click=${this._showHidden} ?checked=${this.showHidden} ?disabled=${!this.data.versions.some(v => v.hidden)} style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}><label for="showHidden" style=${!this.data.versions.some(v => v.hidden) ? 'opacity:0.4' : ''}> Show Hidden</label>${canSetSensitive ? html`<input id="sensitive" type="checkbox" @click=${this._toggleSensitive} ?checked=${this.data.sensitive} ?disabled=${!this.allowChanges} style="margin-left:16px" title="Sensitive files are only viewable by logged in users"><label for="sensitive" title="Sensitive files are only viewable by logged in users">Sensitive</label>` : null}</td></tr>
           <tr><th>Hidden</th><th>Default</th><th>Latest</th><th>Version</th><th>Size</th><th>Date</th><th>Creator</th><th>Download</th><th>Comment</th></tr>
         </thead>
         <tbody>
@@ -971,6 +975,10 @@ export class FileVersions extends LitElement {
 
   _showHidden(e) {
     this.showHidden = !this.showHidden;
+  }
+
+  _toggleSensitive() {
+    this._updateSettings({ sensitive: !this.data.sensitive });
   }
 
   _edit() {

@@ -1,6 +1,34 @@
-# LitElement JavaScript starter 
+# REST File Browser
 
-This project includes a sample component using LitElement with JavaScript.
+A set of [LitElement](https://lit-element.polymer-project.org/) web components for browsing, viewing, editing, and version-managing files served by a separate REST backend (the "RestFileServer"). It provides:
+
+- A folder/file browser with breadcrumb navigation and history-based routing
+- An inline [Ace](https://ace.c9.io/) editor for viewing and editing text files, plus inline image preview
+- A version-management UI (set default, hide versions, edit comments, view diffs between versions or against unsaved edits)
+- GitHub sign-in via Firebase, gating all mutating actions behind authentication
+
+All of the component code lives in `file-browser.js`, which defines four custom elements: `<file-browser>`, `<path-browser>`, `<ace-editor>`, and `<file-versions>`.
+
+## Usage
+
+Embed the `<file-browser>` element on a page, pointing it at a running RestFileServer instance:
+
+```html
+<script type="module" src="./file-browser.js"></script>
+
+<file-browser
+  restURL="https://your-host/RestFileServer/rest/"
+  context="/RestFileServer">
+</file-browser>
+```
+
+Attributes:
+
+- `restURL` — base URL of the REST backend (required).
+- `context` — application context path; used to locate Ace assets at `${context}/ace`.
+- `filePrefix` — URL path prefix stripped when deriving the current folder from `window.location.pathname` (e.g. `/dev`). Defaults to empty.
+
+See `index.html` and `dev/index.html` for working examples.
 
 ## Setup
 
@@ -10,92 +38,47 @@ Install dependencies:
 npm i
 ```
 
-## Testing
-
-This sample uses Karma, Chai, Mocha, and the open-wc test helpers for testing. See the [open-wc testing documentation](https://open-wc.org/testing/testing.html) for more information.
-
-Tests can be run with the `test` script:
-
-```bash
-npm test
-```
-
 ## Dev Server
 
-This sample uses open-wc's [es-dev-server](https://github.com/open-wc/open-wc/tree/master/packages/es-dev-server) for previewing the project without additional build steps. ES dev server handles resolving Node-style "bare" import specifiers, which aren't supported in browsers. It also automatically transpiles JavaScript and adds polyfills to support older browsers.
-
-To run the dev server and open the project in a new browser tab:
+This project uses [@web/dev-server](https://modern-web.dev/docs/dev-server/overview/), which resolves bare module specifiers and serves the components without a build step. To run the dev server with watch mode:
 
 ```bash
 npm run serve
 ```
 
-There is a development HTML file located at `/dev/index.html` that you can view at http://localhost:8000/dev/index.html.
+The development page is `dev/index.html`; it points at a deployed RestFileServer instance.
 
-## Editing
-
-If you use VS Code, we highly reccomend the [lit-plugin extension](https://marketplace.visualstudio.com/items?itemName=runem.lit-plugin), which enables some extremely useful features for lit-html templates:
-  - Syntax highlighting
-  - Type-checking
-  - Code completion
-  - Hover-over docs
-  - Jump to definition
-  - Linting
-  - Quick Fixes
-  
-  The project is setup to reccomend lit-plugin to VS Code users if they don't already have it installed.
-
-## Linting
-
-Linting of JavaScript files is provided by [ESLint](eslint.org). In addition, [lit-analyzer](https://www.npmjs.com/package/lit-analyzer) is used to type-check and lint lit-html templates with the same engine and rules as lit-plugin.
-
-The rules are mostly the recommended rules from each project, but some have been turned off to make LitElement usage easier. The recommended rules are pretty strict, so you may want to relax them by editing `.eslintrc.json`.
-
-To lint the project run:
+## Linting and Formatting
 
 ```bash
-npm run lint
+npm run lint     # lit-analyzer (lit-html templates) + eslint
+npm run format   # prettier
 ```
 
-## Formatting
+ESLint rules are in `.eslintrc.json` and Prettier config in `.prettierrc.json` (single quotes, no bracket spacing).
 
-[Prettier](https://prettier.io/) is used for code formatting. It has been pre-configured according to the Polymer Project's style. You can change this in `.prettierrc.json`.
+## Bundling
 
-Prettier has not been configured to run when commiting files, but this can be added with Husky and and `pretty-quick`. See the [prettier.io](https://prettier.io/) site for instructions.
-
-## Static Site
-
-This project includes a simple website generated with the [eleventy](11ty.dev) static site generator and the templates and pages in `/docs-src`. The site is generated to `/docs` and intended to be checked in so that GitHub pages can serve the site [from `/docs` on the master branch](https://help.github.com/en/github/working-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
-
-To enable the site go to the GitHub settings and change the GitHub Pages &quot;Source&quot; setting to &quot;master branch /docs folder&quot;.</p>
-
-To build the site, run:
+The components are intended to be consumed as unminified ES modules. To produce a minified, bundled build in `dist/`:
 
 ```bash
-npm run docs
+npm run rollup
 ```
 
-To serve the site locally, run:
+To check the gzipped size without keeping the artifact:
 
 ```bash
-npm run docs:serve
+npm run checksize
 ```
 
-To watch the site files, and re-build automatically, run:
+There is no general `build` step — `npm run build` is a deliberate no-op.
 
-```bash
-npm run docs:watch
-```
+## Backend
 
-The site will usually be served at http://localhost:8000.
+These components are a thin client; all functionality is driven by `fetch` calls against `restURL`. The backend must implement the REST endpoints the components use (folder listing, download/upload, directory creation, hide options, and the `version/*` endpoints for version info, download, diff, and options). Newer-server features are gated on the `capabilities` array returned by the `serverInfo` endpoint, with a fallback for older servers that lack it.
 
-## Bundling and minification
+Authentication uses Firebase with a GitHub OAuth provider; the Firebase ID token is sent as an `Authorization: Bearer <token>` header on mutating requests.
 
-This starter project doesn't include any build-time optimizations like bundling or minification. We recommend publishing components as unoptimized JavaScript modules, and performing build-time optimizations at the application level. This gives build tools the best chance to deduplicate code, remove dead code, and so on.
+## License
 
-For information on building application projects that include LitElement components, see [Build for production](https://lit-element.polymer-project.org/guide/build) on the LitElement site.
-
-
-## More information
-
-See [Get started](https://lit-element.polymer-project.org/guide/start) on the LitElement site for more information.
+BSD-3-Clause. The component scaffolding originated from the LitElement JavaScript starter; see `LICENSE`.
